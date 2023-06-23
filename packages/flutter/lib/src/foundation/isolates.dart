@@ -1,105 +1,101 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'dart:async';
-import 'dart:developer' show Timeline, Flow;
-import 'dart:isolate';
 
-import 'package:meta/meta.dart';
-
-import 'profile.dart';
+import '_isolates_io.dart'
+  if (dart.library.html) '_isolates_web.dart' as isolates;
 
 /// Signature for the callback passed to [compute].
 ///
 /// {@macro flutter.foundation.compute.types}
 ///
-/// Instances of [ComputeCallback] must be top-level functions or static methods
-/// of classes, not closures or instance methods of objects.
+/// Instances of [ComputeCallback] must be functions that can be sent to an
+/// isolate.
+/// {@macro flutter.foundation.compute.callback}
 ///
-/// {@macro flutter.foundation.compute.limitations}
-typedef R ComputeCallback<Q, R>(Q message);
+/// {@macro flutter.foundation.compute.types}
+typedef ComputeCallback<Q, R> = FutureOr<R> Function(Q message);
 
-/// Spawn an isolate, run `callback` on that isolate, passing it `message`, and
-/// (eventually) return the value returned by `callback`.
+/// The signature of [compute], which spawns an isolate, runs `callback` on
+/// that isolate, passes it `message`, and (eventually) returns the value
+/// returned by `callback`.
 ///
-/// This is useful for operations that take longer than a few milliseconds, and
-/// which would therefore risk skipping frames. For tasks that will only take a
-/// few milliseconds, consider [scheduleTask] instead.
+/// {@macro flutter.foundation.compute.usecase}
 ///
-/// {@template flutter.foundation.compute.types}
-/// `Q` is the type of the message that kicks off the computation.
+/// The function used as `callback` must be one that can be sent to an isolate.
+/// {@macro flutter.foundation.compute.callback}
 ///
-/// `R` is the type of the value returned.
-/// {@endtemplate}
-///
-/// The `callback` argument must be a top-level function, not a closure or an
-/// instance or static method of a class.
-///
-/// {@template flutter.foundation.compute.limitations}
-/// There are limitations on the values that can be sent and received to and
-/// from isolates. These limitations constrain the values of `Q` and `R` that
-/// are possible. See the discussion at [SendPort.send].
-/// {@endtemplate}
+/// {@macro flutter.foundation.compute.types}
 ///
 /// The `debugLabel` argument can be specified to provide a name to add to the
 /// [Timeline]. This is useful when profiling an application.
-Future<R> compute<Q, R>(ComputeCallback<Q, R> callback, Q message, { String debugLabel }) async {
-  profile(() { debugLabel ??= callback.toString(); });
-  final Flow flow = Flow.begin();
-  Timeline.startSync('$debugLabel: start', flow: flow);
-  final ReceivePort resultPort = new ReceivePort();
-  Timeline.finishSync();
-  final Isolate isolate = await Isolate.spawn(
-    _spawn,
-    new _IsolateConfiguration<Q, R>(
-      callback,
-      message,
-      resultPort.sendPort,
-      debugLabel,
-      flow.id,
-    ),
-    errorsAreFatal: true,
-    onExit: resultPort.sendPort,
-  );
-  final R result = await resultPort.first;
-  Timeline.startSync('$debugLabel: end', flow: Flow.end(flow.id));
-  resultPort.close();
-  isolate.kill();
-  Timeline.finishSync();
-  return result;
-}
+typedef ComputeImpl = Future<R> Function<Q, R>(ComputeCallback<Q, R> callback, Q message, { String? debugLabel });
 
-@immutable
-class _IsolateConfiguration<Q, R> {
-  const _IsolateConfiguration(
-    this.callback,
-    this.message,
-    this.resultPort,
-    this.debugLabel,
-    this.flowId,
-  );
-  final ComputeCallback<Q, R> callback;
-  final Q message;
-  final SendPort resultPort;
-  final String debugLabel;
-  final int flowId;
-
-  R apply() => callback(message);
-}
-
-void _spawn<Q, R>(_IsolateConfiguration<Q, R> configuration) {
-  R result;
-  Timeline.timeSync(
-    '${configuration.debugLabel}',
-    () {
-      result = configuration.apply();
-    },
-    flow: Flow.step(configuration.flowId),
-  );
-  Timeline.timeSync(
-    '${configuration.debugLabel}: returning result',
-    () { configuration.resultPort.send(result); },
-    flow: Flow.step(configuration.flowId),
-  );
-}
+/// A function that spawns an isolate and runs the provided `callback` on that
+/// isolate, passes it the provided `message`, and (eventually) returns the
+/// value returned by `callback`.
+///
+/// {@template flutter.foundation.compute.usecase}
+/// This is useful for operations that take longer than a few milliseconds, and
+/// which would therefore risk skipping frames. For tasks that will only take a
+/// few milliseconds, consider [SchedulerBinding.scheduleTask] instead.
+/// {@endtemplate}
+///
+/// {@youtube 560 315 https://www.youtube.com/watch?v=5AxWC49ZMzs}
+///
+/// {@tool snippet}
+/// The following code uses the [compute] function to check whether a given
+/// integer is a prime number.
+///
+/// ```dart
+/// Future<bool> isPrime(int value) {
+///   return compute(_calculate, value);
+/// }
+///
+/// bool _calculate(int value) {
+///   if (value == 1) {
+///     return false;
+///   }
+///   for (int i = 2; i < value; ++i) {
+///     if (value % i == 0) {
+///       return false;
+///     }
+///   }
+///   return true;
+/// }
+/// ```
+/// {@end-tool}
+///
+/// The function used as `callback` must be one that can be sent to an isolate.
+/// {@template flutter.foundation.compute.callback}
+/// Qualifying functions include:
+///
+///   * top-level functions
+///   * static methods
+///   * closures that only capture objects that can be sent to an isolate
+///
+/// Using closures must be done with care. Due to
+/// [dart-lang/sdk#36983](https://github.com/dart-lang/sdk/issues/36983) a
+/// closure may capture objects that, while not directly used in the closure
+/// itself, may prevent it from being sent to an isolate.
+/// {@endtemplate}
+///
+/// {@template flutter.foundation.compute.types}
+/// The [compute] method accepts the following parameters:
+///
+///  * `Q` is the type of the message that kicks off the computation.
+///  * `R` is the type of the value returned.
+///
+/// There are limitations on the values that can be sent and received to and
+/// from isolates. These limitations constrain the values of `Q` and `R` that
+/// are possible. See the discussion at [SendPort.send].
+///
+/// The same limitations apply to any errors generated by the computation.
+/// {@endtemplate}
+///
+/// See also:
+///
+///   * [ComputeImpl], for the [compute] function's signature.
+const ComputeImpl compute = isolates.compute;

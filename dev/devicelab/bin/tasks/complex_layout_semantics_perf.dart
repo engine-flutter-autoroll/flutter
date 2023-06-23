@@ -1,9 +1,12 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_devicelab/framework/adb.dart';
+import 'dart:io';
+
+import 'package:flutter_devicelab/framework/devices.dart';
 import 'package:flutter_devicelab/framework/framework.dart';
+import 'package:flutter_devicelab/framework/task_result.dart';
 import 'package:flutter_devicelab/framework/utils.dart';
 import 'package:path/path.dart' as p;
 
@@ -20,6 +23,7 @@ void main() {
 
     await inDirectory(complexLayoutPath, () async {
       await flutter('drive', options: <String>[
+        '--no-android-gradle-daemon',
         '-v',
         '--profile',
         '--trace-startup', // Enables "endless" timeline event buffering.
@@ -30,8 +34,9 @@ void main() {
       ]);
     });
 
-    final String dataPath = p.join(complexLayoutPath, 'build', 'complex_layout_semantics_perf.json');
-    return new TaskResult.successFromFile(file(dataPath), benchmarkScoreKeys: <String>[
+    final String outputPath = Platform.environment['FLUTTER_TEST_OUTPUTS_DIR'] ?? p.join(complexLayoutPath, 'build');
+    final String dataPath = p.join(outputPath, 'complex_layout_semantics_perf.json');
+    return TaskResult.successFromFile(file(dataPath), benchmarkScoreKeys: <String>[
       'initialSemanticsTreeCreation',
     ]);
   });

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,24 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart' as intl;
 
-class FooMaterialLocalizations extends GlobalMaterialLocalizations {
-  FooMaterialLocalizations(Locale locale, this.backButtonTooltip) : super(locale);
+class FooMaterialLocalizations extends MaterialLocalizationEn {
+  FooMaterialLocalizations(
+    Locale localeName,
+    this.backButtonTooltip,
+  ) : super(
+    localeName: localeName.toString(),
+    fullYearFormat: intl.DateFormat.y(),
+    compactDateFormat: intl.DateFormat.yMd(),
+    shortDateFormat: intl.DateFormat.yMMMd(),
+    mediumDateFormat: intl.DateFormat('E, MMM\u00a0d'),
+    longDateFormat: intl.DateFormat.yMMMMEEEEd(),
+    yearMonthFormat: intl.DateFormat.yMMMM(),
+    shortMonthDayFormat: intl.DateFormat.MMMd(),
+    decimalFormat: intl.NumberFormat.decimalPattern(),
+    twoDigitZeroPaddedFormat: intl.NumberFormat('00'),
+  );
 
   @override
   final String backButtonTooltip;
@@ -16,8 +31,8 @@ class FooMaterialLocalizations extends GlobalMaterialLocalizations {
 
 class FooMaterialLocalizationsDelegate extends LocalizationsDelegate<MaterialLocalizations> {
   const FooMaterialLocalizationsDelegate({
-    this.supportedLanguage: 'en',
-    this.backButtonTooltip: 'foo'
+    this.supportedLanguage = 'en',
+    this.backButtonTooltip = 'foo',
   });
 
   final String supportedLanguage;
@@ -25,12 +40,12 @@ class FooMaterialLocalizationsDelegate extends LocalizationsDelegate<MaterialLoc
 
   @override
   bool isSupported(Locale locale) {
-    return supportedLanguage == 'allLanguages' ? true : locale.languageCode == supportedLanguage;
+    return supportedLanguage == 'allLanguages' || locale.languageCode == supportedLanguage;
   }
 
   @override
   Future<FooMaterialLocalizations> load(Locale locale) {
-    return new SynchronousFuture<FooMaterialLocalizations>(new FooMaterialLocalizations(locale, backButtonTooltip));
+    return SynchronousFuture<FooMaterialLocalizations>(FooMaterialLocalizations(locale, backButtonTooltip));
   }
 
   @override
@@ -38,23 +53,23 @@ class FooMaterialLocalizationsDelegate extends LocalizationsDelegate<MaterialLoc
 }
 
 Widget buildFrame({
-  Locale locale,
-  Iterable<LocalizationsDelegate<dynamic>> delegates: GlobalMaterialLocalizations.delegates,
-  WidgetBuilder buildContent,
-  LocaleResolutionCallback localeResolutionCallback,
-  Iterable<Locale> supportedLocales: const <Locale>[
-    const Locale('en', 'US'),
-    const Locale('es', 'es'),
+  Locale? locale,
+  Iterable<LocalizationsDelegate<dynamic>> delegates = GlobalMaterialLocalizations.delegates,
+  required WidgetBuilder buildContent,
+  LocaleResolutionCallback? localeResolutionCallback,
+  Iterable<Locale> supportedLocales = const <Locale>[
+    Locale('en', 'US'),
+    Locale('es', 'ES'),
   ],
 }) {
-  return new MaterialApp(
+  return MaterialApp(
     color: const Color(0xFFFFFFFF),
     locale: locale,
     supportedLocales: supportedLocales,
     localizationsDelegates: delegates,
     localeResolutionCallback: localeResolutionCallback,
     onGenerateRoute: (RouteSettings settings) {
-      return new MaterialPageRoute<void>(
+      return MaterialPageRoute<void>(
         builder: (BuildContext context) {
           return buildContent(context);
         }
@@ -65,12 +80,12 @@ Widget buildFrame({
 
 void main() {
   testWidgets('Locale fallbacks', (WidgetTester tester) async {
-    final Key textKey = new UniqueKey();
+    final Key textKey = UniqueKey();
 
     await tester.pumpWidget(
       buildFrame(
         buildContent: (BuildContext context) {
-          return new Text(
+          return Text(
             MaterialLocalizations.of(context).backButtonTooltip,
             key: textKey,
           );
@@ -81,34 +96,35 @@ void main() {
     expect(tester.widget<Text>(find.byKey(textKey)).data, 'Back');
 
     // Unrecognized locale falls back to 'en'
-    await tester.binding.setLocale('foo', 'bar');
+    await tester.binding.setLocale('foo', 'BAR');
     await tester.pump();
     expect(tester.widget<Text>(find.byKey(textKey)).data, 'Back');
 
     // Spanish Bolivia locale, falls back to just 'es'
-    await tester.binding.setLocale('es', 'bo');
+    await tester.binding.setLocale('es', 'BO');
     await tester.pump();
     expect(tester.widget<Text>(find.byKey(textKey)).data, 'Atrás');
   });
 
-  testWidgets('Localizations.override widget tracks parent\'s locale', (WidgetTester tester) async {
+  testWidgets("Localizations.override widget tracks parent's locale", (WidgetTester tester) async {
     Widget buildLocaleFrame(Locale locale) {
       return buildFrame(
         locale: locale,
+        supportedLocales: <Locale>[locale],
         buildContent: (BuildContext context) {
-          return new Localizations.override(
+          return Localizations.override(
             context: context,
-            child: new Builder(
+            child: Builder(
               builder: (BuildContext context) {
                 // No MaterialLocalizations are defined for the first Localizations
                 // ancestor, so we should get the values from the default one, i.e.
                 // the one created by WidgetsApp via the LocalizationsDelegate
                 // provided by MaterialApp.
-                return new Text(MaterialLocalizations.of(context).backButtonTooltip);
+                return Text(MaterialLocalizations.of(context).backButtonTooltip);
               },
             ),
           );
-        }
+        },
       );
     }
 
@@ -127,20 +143,20 @@ void main() {
       return buildFrame(
         locale: locale,
         buildContent: (BuildContext context) {
-          return new Localizations.override(
+          return Localizations.override(
             context: context,
             locale: const Locale('en', 'US'),
-            child: new Builder(
+            child: Builder(
               builder: (BuildContext context) {
                 // No MaterialLocalizations are defined for the Localizations.override
                 // ancestor, so we should get all values from the default one, i.e.
                 // the one created by WidgetsApp via the LocalizationsDelegate
                 // provided by MaterialApp.
-                return new Text(MaterialLocalizations.of(context).backButtonTooltip);
+                return Text(MaterialLocalizations.of(context).backButtonTooltip);
               },
             ),
           );
-        }
+        },
       );
     }
 
@@ -155,26 +171,26 @@ void main() {
   });
 
   testWidgets('MaterialApp adds MaterialLocalizations for additional languages', (WidgetTester tester) async {
-    final Key textKey = new UniqueKey();
+    final Key textKey = UniqueKey();
 
     await tester.pumpWidget(
       buildFrame(
-        delegates: <FooMaterialLocalizationsDelegate>[
+        delegates: <LocalizationsDelegate<dynamic>>[
           const FooMaterialLocalizationsDelegate(supportedLanguage: 'fr', backButtonTooltip: 'FR'),
           const FooMaterialLocalizationsDelegate(supportedLanguage: 'de', backButtonTooltip: 'DE'),
+          GlobalCupertinoLocalizations.delegate,
         ],
         supportedLocales: const <Locale>[
-          const Locale('en', ''),
-          const Locale('fr', ''),
-          const Locale('de', ''),
+          Locale('en'),
+          Locale('fr'),
+          Locale('de'),
         ],
         buildContent: (BuildContext context) {
-          // Should always be 'foo', no matter what the locale is
-          return new Text(
+          return Text(
             MaterialLocalizations.of(context).backButtonTooltip,
             key: textKey,
           );
-        }
+        },
       )
     );
 
@@ -190,22 +206,23 @@ void main() {
   });
 
   testWidgets('MaterialApp overrides MaterialLocalizations for all locales', (WidgetTester tester) async {
-    final Key textKey = new UniqueKey();
+    final Key textKey = UniqueKey();
 
     await tester.pumpWidget(
       buildFrame(
         // Accept whatever locale we're given
-        localeResolutionCallback: (Locale locale, Iterable<Locale> supportedLocales) => locale,
-        delegates: <FooMaterialLocalizationsDelegate>[
+        localeResolutionCallback: (Locale? locale, Iterable<Locale> supportedLocales) => locale,
+        delegates: <LocalizationsDelegate<dynamic>>[
           const FooMaterialLocalizationsDelegate(supportedLanguage: 'allLanguages'),
+          GlobalCupertinoLocalizations.delegate,
         ],
         buildContent: (BuildContext context) {
           // Should always be 'foo', no matter what the locale is
-          return new Text(
+          return Text(
             MaterialLocalizations.of(context).backButtonTooltip,
             key: textKey,
           );
-        }
+        },
       )
     );
 
@@ -221,20 +238,21 @@ void main() {
   });
 
   testWidgets('MaterialApp overrides MaterialLocalizations for default locale', (WidgetTester tester) async {
-    final Key textKey = new UniqueKey();
+    final Key textKey = UniqueKey();
 
     await tester.pumpWidget(
       buildFrame(
-        delegates: <FooMaterialLocalizationsDelegate>[
-          const FooMaterialLocalizationsDelegate(supportedLanguage: 'en'),
+        delegates: <LocalizationsDelegate<dynamic>>[
+          const FooMaterialLocalizationsDelegate(),
+          GlobalCupertinoLocalizations.delegate,
         ],
         // supportedLocales not specified, so all locales resolve to 'en'
         buildContent: (BuildContext context) {
-          return new Text(
+          return Text(
             MaterialLocalizations.of(context).backButtonTooltip,
             key: textKey,
           );
-        }
+        },
       )
     );
 
@@ -253,7 +271,7 @@ void main() {
   });
 
   testWidgets('deprecated Android/Java locales are modernized', (WidgetTester tester) async {
-    final Key textKey = new UniqueKey();
+    final Key textKey = UniqueKey();
 
     await tester.pumpWidget(
       buildFrame(
@@ -264,7 +282,7 @@ void main() {
           const Locale('id', 'JV'),
         ],
         buildContent: (BuildContext context) {
-          return new Text(
+          return Text(
             '${Localizations.localeOf(context)}',
             key: textKey,
           );
@@ -282,6 +300,7 @@ void main() {
     // Yiddish was ji (ISO-639) is yi (ISO-639-1)
     await tester.binding.setLocale('ji', 'IL');
     await tester.pump();
+    expect(tester.takeException(), "Warning: This application's locale, yi_IL, is not supported by all of its localization delegates.");
     expect(tester.widget<Text>(find.byKey(textKey)).data, 'yi_IL');
 
     // Indonesian was in (ISO-639) is id (ISO-639-1)

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('Nested Localizations', (WidgetTester tester) async {
-    await tester.pumpWidget(new MaterialApp( // Creates the outer Localizations widget.
-      home: new ListView(
+    await tester.pumpWidget(MaterialApp( // Creates the outer Localizations widget.
+      home: ListView(
         children: <Widget>[
-          const LocalizationTracker(key: const ValueKey<String>('outer')),
-          new Localizations(
+          const LocalizationTracker(key: ValueKey<String>('outer')),
+          Localizations(
             locale: const Locale('zh', 'CN'),
             delegates: GlobalMaterialLocalizations.delegates,
-            child: const LocalizationTracker(key: const ValueKey<String>('inner')),
+            child: const LocalizationTracker(key: ValueKey<String>('inner')),
           ),
         ],
       ),
@@ -30,40 +30,38 @@ void main() {
   testWidgets('Localizations is compatible with ChangeNotifier.dispose() called during didChangeDependencies', (WidgetTester tester) async {
     // PageView calls ScrollPosition.dispose() during didChangeDependencies.
     await tester.pumpWidget(
-      new MaterialApp(
+      MaterialApp(
         supportedLocales: const <Locale>[
-          const Locale('en', 'US'),
-          const Locale('es', 'ES'),
+          Locale('en', 'US'),
+          Locale('es', 'ES'),
         ],
         localizationsDelegates: <LocalizationsDelegate<dynamic>>[
-          new _DummyLocalizationsDelegate(),
-          GlobalMaterialLocalizations.delegate,
+          _DummyLocalizationsDelegate(),
+          ...GlobalMaterialLocalizations.delegates,
         ],
-        home: new PageView(),
+        home: PageView(),
       )
     );
 
     await tester.binding.setLocale('es', 'US');
     await tester.pump();
-    await tester.pumpWidget(new Container());
+    await tester.pumpWidget(Container());
   });
 
-  testWidgets('Locale without coutryCode', (WidgetTester tester) async {
+  testWidgets('Locale without countryCode', (WidgetTester tester) async {
     // Regression test for https://github.com/flutter/flutter/pull/16782
     await tester.pumpWidget(
-      new MaterialApp(
-        localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
-          GlobalMaterialLocalizations.delegate,
-        ],
+      MaterialApp(
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
         supportedLocales: const <Locale>[
-          const Locale('es', 'ES'),
-          const Locale('zh'),
+          Locale('es', 'ES'),
+          Locale('zh'),
         ],
-        home: new Container(),
+        home: Container(),
       )
     );
 
-    await tester.binding.setLocale('zh', null);
+    await tester.binding.setLocale('zh', '');
     await tester.pump();
     await tester.binding.setLocale('es', 'US');
     await tester.pump();
@@ -75,7 +73,7 @@ void main() {
 /// used to trigger didChangeDependencies upon locale change.
 class _DummyLocalizationsDelegate extends LocalizationsDelegate<DummyLocalizations> {
   @override
-  Future<DummyLocalizations> load(Locale locale) async => new DummyLocalizations();
+  Future<DummyLocalizations> load(Locale locale) async => DummyLocalizations();
 
   @override
   bool isSupported(Locale locale) => true;
@@ -84,21 +82,21 @@ class _DummyLocalizationsDelegate extends LocalizationsDelegate<DummyLocalizatio
   bool shouldReload(_DummyLocalizationsDelegate old) => true;
 }
 
-class DummyLocalizations {}
+class DummyLocalizations { }
 
 class LocalizationTracker extends StatefulWidget {
-  const LocalizationTracker({Key key}) : super(key: key);
+  const LocalizationTracker({super.key});
 
   @override
-  State<StatefulWidget> createState() => new LocalizationTrackerState();
+  State<StatefulWidget> createState() => LocalizationTrackerState();
 }
 
 class LocalizationTrackerState extends State<LocalizationTracker> {
-  double captionFontSize;
+  late double captionFontSize;
 
   @override
   Widget build(BuildContext context) {
-    captionFontSize = Theme.of(context).textTheme.caption.fontSize;
-    return new Container();
+    captionFontSize = Theme.of(context).textTheme.caption!.fontSize!;
+    return Container();
   }
 }

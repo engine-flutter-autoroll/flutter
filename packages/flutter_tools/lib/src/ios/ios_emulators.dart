@@ -1,30 +1,30 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
-import '../base/file_system.dart';
-import '../base/platform.dart';
+import '../base/common.dart';
 import '../base/process.dart';
+import '../device.dart';
 import '../emulator.dart';
-import '../globals.dart';
-import '../ios/mac.dart';
-import 'ios_workflow.dart';
+import '../globals.dart' as globals;
+import 'simulators.dart';
 
 class IOSEmulators extends EmulatorDiscovery {
   @override
-  bool get supportsPlatform => platform.isMacOS;
+  bool get supportsPlatform => globals.platform.isMacOS;
 
   @override
-  bool get canListAnything => iosWorkflow.canListEmulators;
+  bool get canListAnything => globals.iosWorkflow?.canListEmulators ?? false;
 
   @override
   Future<List<Emulator>> get emulators async => getEmulators();
+
+  @override
+  bool get canLaunchAnything => canListAnything;
 }
 
 class IOSEmulator extends Emulator {
-  IOSEmulator(String id) : super(id, true);
+  const IOSEmulator(String id) : super(id, true);
 
   @override
   String get name => 'iOS Simulator';
@@ -33,49 +33,50 @@ class IOSEmulator extends Emulator {
   String get manufacturer => 'Apple';
 
   @override
-  String get label => null;
+  Category get category => Category.mobile;
 
   @override
-  Future<bool> launch() async {
-    Future<bool> launchSimulator(List<String> additionalArgs) async {
-      final List<String> args = <String>['open']
-          .followedBy(additionalArgs)
-          .followedBy(<String>['-a', getSimulatorPath()]);
+  PlatformType get platformType => PlatformType.ios;
 
-      final RunResult launchResult = await runAsync(args);
+  @override
+  Future<void> launch({bool coldBoot = false}) async {
+    final String? simulatorPath = globals.xcode?.getSimulatorPath();
+    if (simulatorPath == null) {
+      throwToolExit('Could not find Simulator app');
+    }
+    Future<bool> launchSimulator(List<String> additionalArgs) async {
+      final List<String> args = <String>[
+        'open',
+        ...additionalArgs,
+        '-a',
+        simulatorPath,
+      ];
+
+      final RunResult launchResult = await globals.processUtils.run(args);
       if (launchResult.exitCode != 0) {
-        printError('$launchResult');
+        globals.printError('$launchResult');
         return false;
       }
       return true;
     }
 
     // First run with `-n` to force a device to boot if there isn't already one
-    if (!await launchSimulator(<String>['-n']))
-      return false;
-    
+    if (!await launchSimulator(<String>['-n'])) {
+      return;
+    }
+
     // Run again to force it to Foreground (using -n doesn't force existing
     // devices to the foreground)
-    return launchSimulator(<String>[]);
+    await launchSimulator(<String>[]);
   }
 }
 
 /// Return the list of iOS Simulators (there can only be zero or one).
 List<IOSEmulator> getEmulators() {
-  final String simulatorPath = getSimulatorPath();
+  final String? simulatorPath = globals.xcode?.getSimulatorPath();
   if (simulatorPath == null) {
     return <IOSEmulator>[];
   }
 
-  return <IOSEmulator>[new IOSEmulator('apple_ios_simulator')];
-}
-
-String getSimulatorPath() {
-  final List<String> searchPaths = <String>[
-    fs.path.join(xcode.xcodeSelectPath, 'Applications', 'Simulator.app'),
-  ];
-  return searchPaths.where((String p) => p != null).firstWhere(
-        (String p) => fs.directory(p).existsSync(),
-        orElse: () => null,
-      );
+  return <IOSEmulator>[const IOSEmulator(iosSimulatorId)];
 }

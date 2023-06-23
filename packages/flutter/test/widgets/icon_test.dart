@@ -1,10 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/widgets.dart';
 
 import 'semantics_tester.dart';
 
@@ -13,25 +14,25 @@ void main() {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const IconTheme(
-          data: const IconThemeData(
-            color: const Color(0xFF666666),
-            opacity: 0.5
+        child: IconTheme(
+          data: IconThemeData(
+            color: Color(0xFF666666),
+            opacity: 0.5,
           ),
-          child: const Icon(const IconData(0xd0a0, fontFamily: 'Arial'))
+          child: Icon(IconData(0xd0a0, fontFamily: 'Arial')),
         ),
       ),
     );
     final RichText text = tester.widget(find.byType(RichText));
-    expect(text.text.style.color, const Color(0xFF666666).withOpacity(0.5));
+    expect(text.text.style!.color, const Color(0xFF666666).withOpacity(0.5));
   });
 
   testWidgets('Icon sizing - no theme, default size', (WidgetTester tester) async {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const Icon(null),
+        child: Center(
+          child: Icon(null),
         ),
       ),
     );
@@ -44,8 +45,8 @@ void main() {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const Icon(
+        child: Center(
+          child: Icon(
             null,
             size: 96.0,
           ),
@@ -61,10 +62,10 @@ void main() {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const IconTheme(
-            data: const IconThemeData(size: 36.0),
-            child: const Icon(null),
+        child: Center(
+          child: IconTheme(
+            data: IconThemeData(size: 36.0),
+            child: Icon(null),
           ),
         ),
       ),
@@ -78,16 +79,16 @@ void main() {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const IconTheme(
-            data: const IconThemeData(size: 36.0),
-            child: const Icon(
+        child: Center(
+          child: IconTheme(
+            data: IconThemeData(size: 36.0),
+            child: Icon(
               null,
               size: 48.0,
             ),
           ),
         ),
-      )
+      ),
     );
 
     final RenderBox renderObject = tester.renderObject(find.byType(Icon));
@@ -98,10 +99,10 @@ void main() {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const IconTheme(
-            data: const IconThemeData(),
-            child: const Icon(null),
+        child: Center(
+          child: IconTheme(
+            data: IconThemeData(),
+            child: Icon(null),
           ),
         ),
       ),
@@ -116,24 +117,24 @@ void main() {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const Icon(const IconData(0x41, fontFamily: 'Roboto')),
+        child: Center(
+          child: Icon(IconData(0x41, fontFamily: 'Roboto')),
         ),
       ),
     );
 
     final RichText richText = tester.firstWidget(find.byType(RichText));
-    expect(richText.text.style.fontFamily, equals('Roboto'));
+    expect(richText.text.style!.fontFamily, equals('Roboto'));
   });
 
   testWidgets('Icon with semantic label', (WidgetTester tester) async {
-    final SemanticsTester semantics = new SemanticsTester(tester);
+    final SemanticsTester semantics = SemanticsTester(tester);
 
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const Icon(
+        child: Center(
+          child: Icon(
             Icons.title,
             semanticLabel: 'a label',
           ),
@@ -147,13 +148,13 @@ void main() {
   });
 
   testWidgets('Null icon with semantic label', (WidgetTester tester) async {
-    final SemanticsTester semantics = new SemanticsTester(tester);
+    final SemanticsTester semantics = SemanticsTester(tester);
 
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const Icon(
+        child: Center(
+          child: Icon(
             null,
             semanticLabel: 'a label',
           ),
@@ -166,12 +167,12 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('Changing semantic label from null doesn\'t rebuild tree ', (WidgetTester tester) async {
+  testWidgets("Changing semantic label from null doesn't rebuild tree ", (WidgetTester tester) async {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const Icon(Icons.time_to_leave),
+        child: Center(
+          child: Icon(Icons.time_to_leave),
         ),
       ),
     );
@@ -181,8 +182,8 @@ void main() {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const Icon(
+        child: Center(
+          child: Icon(
             Icons.time_to_leave,
             semanticLabel: 'a label',
           ),
@@ -207,5 +208,99 @@ void main() {
     expect(const IconData(123).hashCode, isNot(const IconData(123, fontFamily: 'f').hashCode));
     expect(const IconData(123).hashCode, isNot(const IconData(123, fontPackage: 'p').hashCode));
     expect(const IconData(123).toString(), 'IconData(U+0007B)');
+  });
+
+
+  testWidgets('Fill, weight, grade, and optical size variations are passed', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: Icon(Icons.abc),
+      ),
+    );
+
+    RichText text = tester.widget(find.byType(RichText));
+    expect(text.text.style!.fontVariations, <FontVariation>[
+      const FontVariation('FILL', 0.0),
+      const FontVariation('wght', 400.0),
+      const FontVariation('GRAD', 0.0),
+      const FontVariation('opsz', 48.0)
+    ]);
+
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: Icon(Icons.abc, fill: 0.5, weight: 300, grade: 200, opticalSize: 48),
+      ),
+    );
+
+    text = tester.widget(find.byType(RichText));
+    expect(text.text.style!.fontVariations, isNotNull);
+    expect(text.text.style!.fontVariations, <FontVariation>[
+      const FontVariation('FILL', 0.5),
+      const FontVariation('wght', 300.0),
+      const FontVariation('GRAD', 200.0),
+      const FontVariation('opsz', 48.0)
+    ]);
+  });
+
+  testWidgets('Fill, weight, grade, and optical size can be set at the theme-level', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: IconTheme(
+          data: IconThemeData(
+            fill: 0.2,
+            weight: 3.0,
+            grade: 4.0,
+            opticalSize: 5.0,
+          ),
+          child: Icon(Icons.abc),
+        ),
+      ),
+    );
+
+    final RichText text = tester.widget(find.byType(RichText));
+    expect(text.text.style!.fontVariations, <FontVariation>[
+      const FontVariation('FILL', 0.2),
+      const FontVariation('wght', 3.0),
+      const FontVariation('GRAD', 4.0),
+      const FontVariation('opsz', 5.0)
+    ]);
+  });
+
+  testWidgets('Theme-level fill, weight, grade, and optical size can be overriden', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: IconTheme(
+          data: IconThemeData(
+            fill: 0.2,
+            weight: 3.0,
+            grade: 4.0,
+            opticalSize: 5.0,
+          ),
+          child: Icon(Icons.abc, fill: 0.6, weight: 7.0, grade: 8.0, opticalSize: 9.0),
+        ),
+      ),
+    );
+
+    final RichText text = tester.widget(find.byType(RichText));
+    expect(text.text.style!.fontVariations, isNotNull);
+    expect(text.text.style!.fontVariations, <FontVariation>[
+      const FontVariation('FILL', 0.6),
+      const FontVariation('wght', 7.0),
+      const FontVariation('GRAD', 8.0),
+      const FontVariation('opsz', 9.0)
+    ]);
+  });
+
+  test('Throws if given invalid values', () {
+    expect(() => Icon(Icons.abc, fill: -0.1), throwsAssertionError);
+    expect(() => Icon(Icons.abc, fill: 1.1), throwsAssertionError);
+    expect(() => Icon(Icons.abc, weight: -0.1), throwsAssertionError);
+    expect(() => Icon(Icons.abc, weight: 0.0), throwsAssertionError);
+    expect(() => Icon(Icons.abc, opticalSize: -0.1), throwsAssertionError);
+    expect(() => Icon(Icons.abc, opticalSize: 0), throwsAssertionError);
   });
 }

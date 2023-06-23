@@ -1,15 +1,19 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:developer' as developer;
 import 'dart:ui' as ui show Image;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 
 import 'alignment.dart';
 import 'basic_types.dart';
+import 'binding.dart';
 import 'borders.dart';
 import 'box_fit.dart';
+import 'debug.dart';
 import 'image_provider.dart';
 import 'image_stream.dart';
 
@@ -39,17 +43,24 @@ class DecorationImage {
   /// The [image], [alignment], [repeat], and [matchTextDirection] arguments
   /// must not be null.
   const DecorationImage({
-    @required this.image,
+    required this.image,
+    this.onError,
     this.colorFilter,
     this.fit,
-    this.alignment: Alignment.center,
+    this.alignment = Alignment.center,
     this.centerSlice,
-    this.repeat: ImageRepeat.noRepeat,
-    this.matchTextDirection: false,
+    this.repeat = ImageRepeat.noRepeat,
+    this.matchTextDirection = false,
+    this.scale = 1.0,
+    this.opacity = 1.0,
+    this.filterQuality = FilterQuality.low,
+    this.invertColors = false,
+    this.isAntiAlias = false,
   }) : assert(image != null),
        assert(alignment != null),
        assert(repeat != null),
-       assert(matchTextDirection != null);
+       assert(matchTextDirection != null),
+       assert(scale != null);
 
   /// The image to be painted into the decoration.
   ///
@@ -57,8 +68,11 @@ class DecorationImage {
   /// application) or a [NetworkImage] (for an image obtained from the network).
   final ImageProvider image;
 
+  /// An optional error callback for errors emitted when loading [image].
+  final ImageErrorListener? onError;
+
   /// A color filter to apply to the image before painting it.
-  final ColorFilter colorFilter;
+  final ColorFilter? colorFilter;
 
   /// How the image should be inscribed into the box.
   ///
@@ -66,12 +80,12 @@ class DecorationImage {
   /// [BoxFit.fill] if [centerSlice] is not null.
   ///
   /// See the discussion at [paintImage] for more details.
-  final BoxFit fit;
+  final BoxFit? fit;
 
   /// How to align the image within its bounds.
   ///
   /// The alignment aligns the given position in the image to the given position
-  /// in the layout bounds. For example, a [Alignment] alignment of (-1.0,
+  /// in the layout bounds. For example, an [Alignment] alignment of (-1.0,
   /// -1.0) aligns the image to the top-left corner of its layout bounds, while a
   /// [Alignment] alignment of (1.0, 1.0) aligns the bottom right of the
   /// image with the bottom right corner of its layout bounds. Similarly, an
@@ -110,7 +124,7 @@ class DecorationImage {
   /// destination image size will result in [centerSlice] having no effect
   /// (since the nine regions of the image will be rendered with the same
   /// scaling, as if it wasn't specified).
-  final Rect centerSlice;
+  final Rect? centerSlice;
 
   /// How to paint any portions of the box that would not otherwise be covered
   /// by the image.
@@ -125,6 +139,41 @@ class DecorationImage {
   /// in the top right.
   final bool matchTextDirection;
 
+  /// Defines image pixels to be shown per logical pixels.
+  ///
+  /// By default the value of scale is 1.0. The scale for the image is
+  /// calculated by multiplying [scale] with `scale` of the given [ImageProvider].
+  final double scale;
+
+  /// If non-null, the value is multiplied with the opacity of each image
+  /// pixel before painting onto the canvas.
+  ///
+  /// This is more efficient than using [Opacity] or [FadeTransition] to
+  /// change the opacity of an image.
+  final double opacity;
+
+  /// Used to set the filterQuality of the image.
+  ///
+  /// Defaults to [FilterQuality.low] to scale the image, which corresponds to
+  /// bilinear interpolation.
+  final FilterQuality filterQuality;
+
+  /// Whether the colors of the image are inverted when drawn.
+  ///
+  /// Inverting the colors of an image applies a new color filter to the paint.
+  /// If there is another specified color filter, the invert will be applied
+  /// after it. This is primarily used for implementing smart invert on iOS.
+  ///
+  /// See also:
+  ///
+  ///  * [Paint.invertColors], for the dart:ui implementation.
+  final bool invertColors;
+
+  /// Whether to paint the image with anti-aliasing.
+  ///
+  /// Anti-aliasing alleviates the sawtooth artifact when the image is rotated.
+  final bool isAntiAlias;
+
   /// Creates a [DecorationImagePainter] for this [DecorationImage].
   ///
   /// The `onChanged` argument must not be null. It will be called whenever the
@@ -132,46 +181,74 @@ class DecorationImage {
   /// because it is animated.
   DecorationImagePainter createPainter(VoidCallback onChanged) {
     assert(onChanged != null);
-    return new DecorationImagePainter._(this, onChanged);
+    return DecorationImagePainter._(this, onChanged);
   }
 
   @override
-  bool operator ==(dynamic other) {
-    if (identical(this, other))
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
       return true;
-    if (runtimeType != other.runtimeType)
+    }
+    if (other.runtimeType != runtimeType) {
       return false;
-    final DecorationImage typedOther = other;
-    return image == typedOther.image
-        && colorFilter == typedOther.colorFilter
-        && fit == typedOther.fit
-        && alignment == typedOther.alignment
-        && centerSlice == typedOther.centerSlice
-        && repeat == typedOther.repeat
-        && matchTextDirection == typedOther.matchTextDirection;
+    }
+    return other is DecorationImage
+        && other.image == image
+        && other.colorFilter == colorFilter
+        && other.fit == fit
+        && other.alignment == alignment
+        && other.centerSlice == centerSlice
+        && other.repeat == repeat
+        && other.matchTextDirection == matchTextDirection
+        && other.scale == scale
+        && other.opacity == opacity
+        && other.filterQuality == filterQuality
+        && other.invertColors == invertColors
+        && other.isAntiAlias == isAntiAlias;
   }
 
   @override
-  int get hashCode => hashValues(image, colorFilter, fit, alignment, centerSlice, repeat, matchTextDirection);
+  int get hashCode => Object.hash(
+    image,
+    colorFilter,
+    fit,
+    alignment,
+    centerSlice,
+    repeat,
+    matchTextDirection,
+    scale,
+    opacity,
+    filterQuality,
+    invertColors,
+    isAntiAlias,
+  );
 
   @override
   String toString() {
-    final List<String> properties = <String>[];
-    properties.add('$image');
-    if (colorFilter != null)
-      properties.add('$colorFilter');
-    if (fit != null &&
-        !(fit == BoxFit.fill && centerSlice != null) &&
-        !(fit == BoxFit.scaleDown && centerSlice == null))
-      properties.add('$fit');
-    properties.add('$alignment');
-    if (centerSlice != null)
-      properties.add('centerSlice: $centerSlice');
-    if (repeat != ImageRepeat.noRepeat)
-      properties.add('$repeat');
-    if (matchTextDirection)
-      properties.add('match text direction');
-    return '$runtimeType(${properties.join(", ")})';
+    final List<String> properties = <String>[
+      '$image',
+      if (colorFilter != null)
+        '$colorFilter',
+      if (fit != null &&
+          !(fit == BoxFit.fill && centerSlice != null) &&
+          !(fit == BoxFit.scaleDown && centerSlice == null))
+        '$fit',
+      '$alignment',
+      if (centerSlice != null)
+        'centerSlice: $centerSlice',
+      if (repeat != ImageRepeat.noRepeat)
+        '$repeat',
+      if (matchTextDirection)
+        'match text direction',
+      'scale $scale',
+      'opacity $opacity',
+      '$filterQuality',
+      if (invertColors)
+        'invert colors',
+      if (isAntiAlias)
+        'use anti-aliasing',
+    ];
+    return '${objectRuntimeType(this, 'DecorationImage')}(${properties.join(", ")})';
   }
 }
 
@@ -192,8 +269,8 @@ class DecorationImagePainter {
   final DecorationImage _details;
   final VoidCallback _onChanged;
 
-  ImageStream _imageStream;
-  ImageInfo _image;
+  ImageStream? _imageStream;
+  ImageInfo? _image;
 
   /// Draw the image onto the given canvas.
   ///
@@ -209,7 +286,7 @@ class DecorationImagePainter {
   /// because it had not yet been loaded the first time this method was called,
   /// then the `onChanged` callback passed to [DecorationImage.createPainter]
   /// will be called.
-  void paint(Canvas canvas, Rect rect, Path clipPath, ImageConfiguration configuration) {
+  void paint(Canvas canvas, Rect rect, Path? clipPath, ImageConfiguration configuration) {
     assert(canvas != null);
     assert(rect != null);
     assert(configuration != null);
@@ -220,30 +297,36 @@ class DecorationImagePainter {
         // We check this first so that the assert will fire immediately, not just
         // when the image is ready.
         if (configuration.textDirection == null) {
-          throw new FlutterError(
-            'ImageDecoration.matchTextDirection can only be used when a TextDirection is available.\n'
-            'When DecorationImagePainter.paint() was called, there was no text direction provided '
-            'in the ImageConfiguration object to match.\n'
-            'The DecorationImage was:\n'
-            '  $_details\n'
-            'The ImageConfiguration was:\n'
-            '  $configuration'
-          );
+          throw FlutterError.fromParts(<DiagnosticsNode>[
+            ErrorSummary('DecorationImage.matchTextDirection can only be used when a TextDirection is available.'),
+            ErrorDescription(
+              'When DecorationImagePainter.paint() was called, there was no text direction provided '
+              'in the ImageConfiguration object to match.',
+            ),
+            DiagnosticsProperty<DecorationImage>('The DecorationImage was', _details, style: DiagnosticsTreeStyle.errorProperty),
+            DiagnosticsProperty<ImageConfiguration>('The ImageConfiguration was', configuration, style: DiagnosticsTreeStyle.errorProperty),
+          ]);
         }
         return true;
       }());
-      if (configuration.textDirection == TextDirection.rtl)
+      if (configuration.textDirection == TextDirection.rtl) {
         flipHorizontally = true;
+      }
     }
 
     final ImageStream newImageStream = _details.image.resolve(configuration);
     if (newImageStream.key != _imageStream?.key) {
-      _imageStream?.removeListener(_imageListener);
+      final ImageStreamListener listener = ImageStreamListener(
+        _handleImage,
+        onError: _details.onError,
+      );
+      _imageStream?.removeListener(listener);
       _imageStream = newImageStream;
-      _imageStream.addListener(_imageListener);
+      _imageStream!.addListener(listener);
     }
-    if (_image == null)
+    if (_image == null) {
       return;
+    }
 
     if (clipPath != null) {
       canvas.save();
@@ -253,26 +336,40 @@ class DecorationImagePainter {
     paintImage(
       canvas: canvas,
       rect: rect,
-      image: _image.image,
+      image: _image!.image,
+      debugImageLabel: _image!.debugLabel,
+      scale: _details.scale * _image!.scale,
       colorFilter: _details.colorFilter,
       fit: _details.fit,
       alignment: _details.alignment.resolve(configuration.textDirection),
       centerSlice: _details.centerSlice,
       repeat: _details.repeat,
       flipHorizontally: flipHorizontally,
+      opacity: _details.opacity,
+      filterQuality: _details.filterQuality,
+      invertColors: _details.invertColors,
+      isAntiAlias: _details.isAntiAlias,
     );
 
-    if (clipPath != null)
+    if (clipPath != null) {
       canvas.restore();
+    }
   }
 
-  void _imageListener(ImageInfo value, bool synchronousCall) {
-    if (_image == value)
+  void _handleImage(ImageInfo value, bool synchronousCall) {
+    if (_image == value) {
       return;
+    }
+    if (_image != null && _image!.isCloneOf(value)) {
+      value.dispose();
+      return;
+    }
+    _image?.dispose();
     _image = value;
     assert(_onChanged != null);
-    if (!synchronousCall)
+    if (!synchronousCall) {
       _onChanged();
+    }
   }
 
   /// Releases the resources used by this painter.
@@ -282,13 +379,37 @@ class DecorationImagePainter {
   /// After this method has been called, the object is no longer usable.
   @mustCallSuper
   void dispose() {
-    _imageStream?.removeListener(_imageListener);
+    _imageStream?.removeListener(ImageStreamListener(
+      _handleImage,
+      onError: _details.onError,
+    ));
+    _image?.dispose();
+    _image = null;
   }
 
   @override
   String toString() {
-    return '$runtimeType(stream: $_imageStream, image: $_image) for $_details';
+    return '${objectRuntimeType(this, 'DecorationImagePainter')}(stream: $_imageStream, image: $_image) for $_details';
   }
+}
+
+/// Used by [paintImage] to report image sizes drawn at the end of the frame.
+Map<String, ImageSizeInfo> _pendingImageSizeInfo = <String, ImageSizeInfo>{};
+
+/// [ImageSizeInfo]s that were reported on the last frame.
+///
+/// Used to prevent duplicative reports from frame to frame.
+Set<ImageSizeInfo> _lastFrameImageSizeInfo = <ImageSizeInfo>{};
+
+/// Flushes inter-frame tracking of image size information from [paintImage].
+///
+/// Has no effect if asserts are disabled.
+@visibleForTesting
+void debugFlushLastFrameImageSizeInfo() {
+  assert(() {
+    _lastFrameImageSizeInfo = <ImageSizeInfo>{};
+    return true;
+  }());
 }
 
 /// Paints an image into the given rectangle on the canvas.
@@ -302,6 +423,10 @@ class DecorationImagePainter {
 ///    `fit`). If `rect` is empty, nothing is painted.
 ///
 ///  * `image`: The image to paint onto the canvas.
+///
+///  * `scale`: The number of image pixels for each logical pixel.
+///
+///  * `opacity`: The opacity to paint the image onto the canvas with.
 ///
 ///  * `colorFilter`: If non-null, the color filter to apply when painting the
 ///    image.
@@ -339,7 +464,17 @@ class DecorationImagePainter {
 ///    when using this, to not flip images with integral shadows, text, or other
 ///    effects that will look incorrect when flipped.
 ///
-/// The `canvas`, `rect`, `image`, `alignment`, `repeat`, and `flipHorizontally`
+///  * `invertColors`: Inverting the colors of an image applies a new color
+///    filter to the paint. If there is another specified color filter, the
+///    invert will be applied after it. This is primarily used for implementing
+///    smart invert on iOS.
+///
+///  * `filterQuality`: Use this to change the quality when scaling an image.
+///     Use the [FilterQuality.low] quality setting to scale the image, which corresponds to
+///     bilinear interpolation, rather than the default [FilterQuality.none] which corresponds
+///     to nearest-neighbor.
+///
+/// The `canvas`, `rect`, `image`, `scale`, `alignment`, `repeat`, `flipHorizontally` and `filterQuality`
 /// arguments must not be null.
 ///
 /// See also:
@@ -348,71 +483,156 @@ class DecorationImagePainter {
 ///  * [DecorationImage], which holds a configuration for calling this function.
 ///  * [BoxDecoration], which uses this function to paint a [DecorationImage].
 void paintImage({
-  @required Canvas canvas,
-  @required Rect rect,
-  @required ui.Image image,
-  ColorFilter colorFilter,
-  BoxFit fit,
-  Alignment alignment: Alignment.center,
-  Rect centerSlice,
-  ImageRepeat repeat: ImageRepeat.noRepeat,
-  bool flipHorizontally: false,
+  required Canvas canvas,
+  required Rect rect,
+  required ui.Image image,
+  String? debugImageLabel,
+  double scale = 1.0,
+  double opacity = 1.0,
+  ColorFilter? colorFilter,
+  BoxFit? fit,
+  Alignment alignment = Alignment.center,
+  Rect? centerSlice,
+  ImageRepeat repeat = ImageRepeat.noRepeat,
+  bool flipHorizontally = false,
+  bool invertColors = false,
+  FilterQuality filterQuality = FilterQuality.low,
+  bool isAntiAlias = false,
 }) {
   assert(canvas != null);
   assert(image != null);
   assert(alignment != null);
   assert(repeat != null);
   assert(flipHorizontally != null);
-  if (rect.isEmpty)
+  assert(isAntiAlias != null);
+  assert(
+    image.debugGetOpenHandleStackTraces()?.isNotEmpty ?? true,
+    'Cannot paint an image that is disposed.\n'
+    'The caller of paintImage is expected to wait to dispose the image until '
+    'after painting has completed.',
+  );
+  if (rect.isEmpty) {
     return;
+  }
   Size outputSize = rect.size;
-  Size inputSize = new Size(image.width.toDouble(), image.height.toDouble());
-  Offset sliceBorder;
+  Size inputSize = Size(image.width.toDouble(), image.height.toDouble());
+  Offset? sliceBorder;
   if (centerSlice != null) {
-    sliceBorder = new Offset(
-      centerSlice.left + inputSize.width - centerSlice.right,
-      centerSlice.top + inputSize.height - centerSlice.bottom
-    );
-    outputSize -= sliceBorder;
-    inputSize -= sliceBorder;
+    sliceBorder = inputSize / scale - centerSlice.size as Offset;
+    outputSize = outputSize - sliceBorder as Size;
+    inputSize = inputSize - sliceBorder * scale as Size;
   }
   fit ??= centerSlice == null ? BoxFit.scaleDown : BoxFit.fill;
   assert(centerSlice == null || (fit != BoxFit.none && fit != BoxFit.cover));
-  final FittedSizes fittedSizes = applyBoxFit(fit, inputSize, outputSize);
-  final Size sourceSize = fittedSizes.source;
+  final FittedSizes fittedSizes = applyBoxFit(fit, inputSize / scale, outputSize);
+  final Size sourceSize = fittedSizes.source * scale;
   Size destinationSize = fittedSizes.destination;
   if (centerSlice != null) {
-    outputSize += sliceBorder;
+    outputSize += sliceBorder!;
     destinationSize += sliceBorder;
     // We don't have the ability to draw a subset of the image at the same time
     // as we apply a nine-patch stretch.
     assert(sourceSize == inputSize, 'centerSlice was used with a BoxFit that does not guarantee that the image is fully visible.');
   }
+
   if (repeat != ImageRepeat.noRepeat && destinationSize == outputSize) {
     // There's no need to repeat the image because we're exactly filling the
     // output rect with the image.
     repeat = ImageRepeat.noRepeat;
   }
-  final Paint paint = new Paint()..isAntiAlias = false;
-  if (colorFilter != null)
+  final Paint paint = Paint()..isAntiAlias = isAntiAlias;
+  if (colorFilter != null) {
     paint.colorFilter = colorFilter;
-  if (sourceSize != destinationSize) {
-    // Use the "low" quality setting to scale the image, which corresponds to
-    // bilinear interpolation, rather than the default "none" which corresponds
-    // to nearest-neighbor.
-    paint.filterQuality = FilterQuality.low;
   }
+  paint.color = Color.fromRGBO(0, 0, 0, opacity);
+  paint.filterQuality = filterQuality;
+  paint.invertColors = invertColors;
   final double halfWidthDelta = (outputSize.width - destinationSize.width) / 2.0;
   final double halfHeightDelta = (outputSize.height - destinationSize.height) / 2.0;
   final double dx = halfWidthDelta + (flipHorizontally ? -alignment.x : alignment.x) * halfWidthDelta;
   final double dy = halfHeightDelta + alignment.y * halfHeightDelta;
   final Offset destinationPosition = rect.topLeft.translate(dx, dy);
   final Rect destinationRect = destinationPosition & destinationSize;
-  final bool needSave = repeat != ImageRepeat.noRepeat || flipHorizontally;
-  if (needSave)
+
+  // Set to true if we added a saveLayer to the canvas to invert/flip the image.
+  bool invertedCanvas = false;
+  // Output size and destination rect are fully calculated.
+  if (!kReleaseMode) {
+    final ImageSizeInfo sizeInfo = ImageSizeInfo(
+      // Some ImageProvider implementations may not have given this.
+      source: debugImageLabel ?? '<Unknown Image(${image.width}×${image.height})>',
+      imageSize: Size(image.width.toDouble(), image.height.toDouble()),
+      // It's ok to use this instead of a MediaQuery because if this changes,
+      // whatever is aware of the MediaQuery will be repainting the image anyway.
+      displaySize: outputSize * PaintingBinding.instance.window.devicePixelRatio,
+    );
+    assert(() {
+      if (debugInvertOversizedImages &&
+          sizeInfo.decodedSizeInBytes > sizeInfo.displaySizeInBytes + debugImageOverheadAllowance) {
+        final int overheadInKilobytes = (sizeInfo.decodedSizeInBytes - sizeInfo.displaySizeInBytes) ~/ 1024;
+        final int outputWidth = sizeInfo.displaySize.width.toInt();
+        final int outputHeight = sizeInfo.displaySize.height.toInt();
+        FlutterError.reportError(FlutterErrorDetails(
+          exception: 'Image $debugImageLabel has a display size of '
+            '$outputWidth×$outputHeight but a decode size of '
+            '${image.width}×${image.height}, which uses an additional '
+            '${overheadInKilobytes}KB.\n\n'
+            'Consider resizing the asset ahead of time, supplying a cacheWidth '
+            'parameter of $outputWidth, a cacheHeight parameter of '
+            '$outputHeight, or using a ResizeImage.',
+          library: 'painting library',
+          context: ErrorDescription('while painting an image'),
+        ));
+        // Invert the colors of the canvas.
+        canvas.saveLayer(
+          destinationRect,
+          Paint()..colorFilter = const ColorFilter.matrix(<double>[
+            -1,  0,  0, 0, 255,
+             0, -1,  0, 0, 255,
+             0,  0, -1, 0, 255,
+             0,  0,  0, 1,   0,
+          ]),
+        );
+        // Flip the canvas vertically.
+        final double dy = -(rect.top + rect.height / 2.0);
+        canvas.translate(0.0, -dy);
+        canvas.scale(1.0, -1.0);
+        canvas.translate(0.0, dy);
+        invertedCanvas = true;
+      }
+      return true;
+    }());
+    // Avoid emitting events that are the same as those emitted in the last frame.
+    if (!_lastFrameImageSizeInfo.contains(sizeInfo)) {
+      final ImageSizeInfo? existingSizeInfo = _pendingImageSizeInfo[sizeInfo.source];
+      if (existingSizeInfo == null || existingSizeInfo.displaySizeInBytes < sizeInfo.displaySizeInBytes) {
+        _pendingImageSizeInfo[sizeInfo.source!] = sizeInfo;
+      }
+      debugOnPaintImage?.call(sizeInfo);
+      SchedulerBinding.instance.addPostFrameCallback((Duration timeStamp) {
+        _lastFrameImageSizeInfo = _pendingImageSizeInfo.values.toSet();
+        if (_pendingImageSizeInfo.isEmpty) {
+          return;
+        }
+        developer.postEvent(
+          'Flutter.ImageSizesForFrame',
+          <String, Object>{
+            for (ImageSizeInfo imageSizeInfo in _pendingImageSizeInfo.values)
+              imageSizeInfo.source!: imageSizeInfo.toJson(),
+          },
+        );
+        _pendingImageSizeInfo = <String, ImageSizeInfo>{};
+      });
+    }
+  }
+
+  final bool needSave = centerSlice != null || repeat != ImageRepeat.noRepeat || flipHorizontally;
+  if (needSave) {
     canvas.save();
-  if (repeat != ImageRepeat.noRepeat)
+  }
+  if (repeat != ImageRepeat.noRepeat) {
     canvas.clipRect(rect);
+  }
   if (flipHorizontally) {
     final double dx = -(rect.left + rect.width / 2.0);
     canvas.translate(-dx, 0.0);
@@ -421,24 +641,35 @@ void paintImage({
   }
   if (centerSlice == null) {
     final Rect sourceRect = alignment.inscribe(
-      fittedSizes.source, Offset.zero & inputSize
+      sourceSize, Offset.zero & inputSize,
     );
-    for (Rect tileRect in _generateImageTileRects(rect, destinationRect, repeat))
-      canvas.drawImageRect(image, sourceRect, tileRect, paint);
+    if (repeat == ImageRepeat.noRepeat) {
+      canvas.drawImageRect(image, sourceRect, destinationRect, paint);
+    } else {
+      for (final Rect tileRect in _generateImageTileRects(rect, destinationRect, repeat)) {
+        canvas.drawImageRect(image, sourceRect, tileRect, paint);
+      }
+    }
   } else {
-    for (Rect tileRect in _generateImageTileRects(rect, destinationRect, repeat))
-      canvas.drawImageNine(image, centerSlice, tileRect, paint);
+    canvas.scale(1 / scale);
+    if (repeat == ImageRepeat.noRepeat) {
+      canvas.drawImageNine(image, _scaleRect(centerSlice, scale), _scaleRect(destinationRect, scale), paint);
+    } else {
+      for (final Rect tileRect in _generateImageTileRects(rect, destinationRect, repeat)) {
+        canvas.drawImageNine(image, _scaleRect(centerSlice, scale), _scaleRect(tileRect, scale), paint);
+      }
+    }
   }
-  if (needSave)
+  if (needSave) {
     canvas.restore();
+  }
+
+  if (invertedCanvas) {
+    canvas.restore();
+  }
 }
 
-Iterable<Rect> _generateImageTileRects(Rect outputRect, Rect fundamentalRect, ImageRepeat repeat) sync* {
-  if (repeat == ImageRepeat.noRepeat) {
-    yield fundamentalRect;
-    return;
-  }
-
+Iterable<Rect> _generateImageTileRects(Rect outputRect, Rect fundamentalRect, ImageRepeat repeat) {
   int startX = 0;
   int startY = 0;
   int stopX = 0;
@@ -456,8 +687,11 @@ Iterable<Rect> _generateImageTileRects(Rect outputRect, Rect fundamentalRect, Im
     stopY = ((outputRect.bottom - fundamentalRect.bottom) / strideY).ceil();
   }
 
-  for (int i = startX; i <= stopX; ++i) {
-    for (int j = startY; j <= stopY; ++j)
-      yield fundamentalRect.shift(new Offset(i * strideX, j * strideY));
-  }
+  return <Rect>[
+    for (int i = startX; i <= stopX; ++i)
+      for (int j = startY; j <= stopY; ++j)
+        fundamentalRect.shift(Offset(i * strideX, j * strideY)),
+  ];
 }
+
+Rect _scaleRect(Rect rect, double scale) => Rect.fromLTRB(rect.left * scale, rect.top * scale, rect.right * scale, rect.bottom * scale);

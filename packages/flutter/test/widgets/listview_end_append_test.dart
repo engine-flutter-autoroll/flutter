@@ -1,21 +1,23 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('ListView.builder() fixed itemExtent, scroll to end, append, scroll', (WidgetTester tester) async {
     // Regression test for https://github.com/flutter/flutter/issues/9506
 
     Widget buildFrame(int itemCount) {
-      return new Directionality(
+      return Directionality(
         textDirection: TextDirection.ltr,
-        child: new ListView.builder(
+        child: ListView.builder(
+          dragStartBehavior: DragStartBehavior.down,
           itemExtent: 200.0,
           itemCount: itemCount,
-          itemBuilder: (BuildContext context, int index) => new Text('item $index'),
+          itemBuilder: (BuildContext context, int index) => Text('item $index'),
         ),
       );
     }
@@ -37,14 +39,15 @@ void main() {
     // Regression test for https://github.com/flutter/flutter/issues/9506
 
     Widget buildFrame(int itemCount) {
-      return new Directionality(
+      return Directionality(
         textDirection: TextDirection.ltr,
-        child: new ListView.builder(
+        child: ListView.builder(
+          dragStartBehavior: DragStartBehavior.down,
           itemCount: itemCount,
           itemBuilder: (BuildContext context, int index) {
-            return new SizedBox(
+            return SizedBox(
               height: 200.0,
-              child: new Text('item $index'),
+              child: Text('item $index'),
             );
           },
         ),

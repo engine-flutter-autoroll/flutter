@@ -1,14 +1,14 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 import 'test_widgets.dart';
 
 class TestCustomPainter extends CustomPainter {
-  TestCustomPainter({ this.log, this.name });
+  TestCustomPainter({ required this.log, required this.name });
 
   final List<String> log;
   final String name;
@@ -30,29 +30,27 @@ void main() {
     final List<String> log = <String>[];
     log.add('0');
     await tester.pumpWidget(
-      new MaterialApp(
+      MaterialApp(
         routes: <String, WidgetBuilder>{
-          '/': (BuildContext context) => new RepaintBoundary(
-            child: new Container(
-              child: new RepaintBoundary(
-                child: new FlipWidget(
-                  left: new CustomPaint(
-                    painter: new TestCustomPainter(
-                      log: log,
-                      name: 'left'
-                    ),
+          '/': (BuildContext context) => RepaintBoundary(
+            child: RepaintBoundary(
+              child: FlipWidget(
+                left: CustomPaint(
+                  painter: TestCustomPainter(
+                    log: log,
+                    name: 'left',
                   ),
-                  right: new CustomPaint(
-                    painter: new TestCustomPainter(
-                      log: log,
-                      name: 'right'
-                    ),
+                ),
+                right: CustomPaint(
+                  painter: TestCustomPainter(
+                    log: log,
+                    name: 'right',
                   ),
                 ),
               ),
             ),
           ),
-          '/second': (BuildContext context) => new Container(),
+          '/second': (BuildContext context) => Container(),
         },
       ),
     );

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,35 +10,35 @@ import 'semantics_tester.dart';
 
 void main() {
   testWidgets('Semantics 7 - Merging', (WidgetTester tester) async {
-    final SemanticsTester semantics = new SemanticsTester(tester);
+    final SemanticsTester semantics = SemanticsTester(tester);
 
     String label;
 
     label = '1';
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
-        child: new Stack(
+        child: Stack(
           fit: StackFit.expand,
           children: <Widget>[
-            new MergeSemantics(
-              child: new Semantics(
+            MergeSemantics(
+              child: Semantics(
                 checked: true,
                 container: true,
-                child: new Semantics(
+                child: Semantics(
                   container: true,
                   label: label,
                 ),
               ),
             ),
-            new MergeSemantics(
-              child: new Stack(
+            MergeSemantics(
+              child: Stack(
                 fit: StackFit.expand,
                 children: <Widget>[
-                  new Semantics(
+                  Semantics(
                     checked: true,
                   ),
-                  new Semantics(
+                  Semantics(
                     label: label,
                   ),
                 ],
@@ -50,16 +50,16 @@ void main() {
     );
 
     expect(semantics, hasSemantics(
-      new TestSemantics.root(
+      TestSemantics.root(
         children: <TestSemantics>[
-          new TestSemantics.rootChild(
+          TestSemantics.rootChild(
             id: 1,
             flags: SemanticsFlag.hasCheckedState.index | SemanticsFlag.isChecked.index,
             label: label,
             rect: TestSemantics.fullScreen,
           ),
           // IDs 2 and 3 are used up by the nodes that get merged in
-          new TestSemantics.rootChild(
+          TestSemantics.rootChild(
             id: 4,
             flags: SemanticsFlag.hasCheckedState.index | SemanticsFlag.isChecked.index,
             label: label,
@@ -67,34 +67,34 @@ void main() {
           ),
           // IDs 5 and 6 are used up by the nodes that get merged in
         ],
-      )
+      ),
     ));
 
     label = '2';
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
-        child: new Stack(
+        child: Stack(
           fit: StackFit.expand,
           children: <Widget>[
-            new MergeSemantics(
-              child: new Semantics(
+            MergeSemantics(
+              child: Semantics(
                 checked: true,
                 container: true,
-                child: new Semantics(
+                child: Semantics(
                   container: true,
                   label: label,
                 ),
               ),
             ),
-            new MergeSemantics(
-              child: new Stack(
+            MergeSemantics(
+              child: Stack(
                 fit: StackFit.expand,
                 children: <Widget>[
-                  new Semantics(
+                  Semantics(
                     checked: true,
                   ),
-                  new Semantics(
+                  Semantics(
                     label: label,
                   ),
                 ],
@@ -106,16 +106,16 @@ void main() {
     );
 
     expect(semantics, hasSemantics(
-      new TestSemantics.root(
+      TestSemantics.root(
         children: <TestSemantics>[
-          new TestSemantics.rootChild(
+          TestSemantics.rootChild(
             id: 1,
             flags: SemanticsFlag.hasCheckedState.index | SemanticsFlag.isChecked.index,
             label: label,
             rect: TestSemantics.fullScreen,
           ),
           // IDs 2 and 3 are used up by the nodes that get merged in
-          new TestSemantics.rootChild(
+          TestSemantics.rootChild(
             id: 4,
             flags: SemanticsFlag.hasCheckedState.index | SemanticsFlag.isChecked.index,
             label: label,
@@ -123,7 +123,7 @@ void main() {
           ),
           // IDs 5 and 6 are used up by the nodes that get merged in
         ],
-      )
+      ),
     ));
 
     semantics.dispose();

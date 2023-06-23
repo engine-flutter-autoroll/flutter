@@ -1,49 +1,49 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('Directionality', (WidgetTester tester) async {
     final List<TextDirection> log = <TextDirection>[];
-    final Widget inner = new Builder(
+    final Widget inner = Builder(
       builder: (BuildContext context) {
         log.add(Directionality.of(context));
         return const Placeholder();
-      }
+      },
     );
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
         child: inner,
       ),
     );
     expect(log, <TextDirection>[TextDirection.ltr]);
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
         child: inner,
       ),
     );
     expect(log, <TextDirection>[TextDirection.ltr]);
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.rtl,
         child: inner,
       ),
     );
     expect(log, <TextDirection>[TextDirection.ltr, TextDirection.rtl]);
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.rtl,
         child: inner,
       ),
     );
     expect(log, <TextDirection>[TextDirection.ltr, TextDirection.rtl]);
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
         child: inner,
       ),
@@ -53,9 +53,9 @@ void main() {
 
   testWidgets('Directionality default', (WidgetTester tester) async {
     bool good = false;
-    await tester.pumpWidget(new Builder(
+    await tester.pumpWidget(Builder(
       builder: (BuildContext context) {
-        expect(Directionality.of(context), isNull);
+        expect(Directionality.maybeOf(context), isNull);
         good = true;
         return const Placeholder();
       },
@@ -63,9 +63,43 @@ void main() {
     expect(good, isTrue);
   });
 
-  testWidgets('Directionality can\'t be null', (WidgetTester tester) async {
-    expect(() {
-      new Directionality(textDirection: nonconst(null), child: const Placeholder());
-    }, throwsAssertionError);
+  testWidgets('Directionality.maybeOf', (WidgetTester tester) async {
+    final GlobalKey hasDirectionality = GlobalKey();
+    final GlobalKey noDirectionality = GlobalKey();
+    await tester.pumpWidget(
+      Container(
+        key: noDirectionality,
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Container(
+            key: hasDirectionality,
+          ),
+        ),
+      ),
+    );
+    expect(Directionality.maybeOf(noDirectionality.currentContext!), isNull);
+    expect(Directionality.maybeOf(hasDirectionality.currentContext!), TextDirection.rtl);
+  });
+
+  testWidgets('Directionality.of', (WidgetTester tester) async {
+    final GlobalKey hasDirectionality = GlobalKey();
+    final GlobalKey noDirectionality = GlobalKey();
+    await tester.pumpWidget(
+      Container(
+        key: noDirectionality,
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Container(
+            key: hasDirectionality,
+          ),
+        ),
+      ),
+    );
+    expect(() => Directionality.of(noDirectionality.currentContext!), throwsA(isAssertionError.having(
+      (AssertionError e) => e.message,
+      'message',
+      contains('No Directionality widget found.'),
+    )));
+    expect(Directionality.of(hasDirectionality.currentContext!), TextDirection.rtl);
   });
 }

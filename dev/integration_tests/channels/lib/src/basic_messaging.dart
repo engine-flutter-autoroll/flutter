@@ -1,11 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'dart:async';
-import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart' show ReadBuffer, WriteBuffer;
+
 import 'pair.dart';
 import 'test_step.dart';
 
@@ -33,82 +33,82 @@ class ExtendedStandardMessageCodec extends StandardMessageCodec {
   dynamic readValueOfType(int type, ReadBuffer buffer) {
     switch (type) {
     case _dateTime:
-      return new DateTime.fromMillisecondsSinceEpoch(buffer.getInt64());
+      return DateTime.fromMillisecondsSinceEpoch(buffer.getInt64());
     case _pair:
-      return new Pair(readValue(buffer), readValue(buffer));
+      return Pair(readValue(buffer), readValue(buffer));
     default: return super.readValueOfType(type, buffer);
     }
   }
 }
 
-Future<TestStepResult> basicBinaryHandshake(ByteData message) async {
-  const BasicMessageChannel<ByteData> channel =
-      const BasicMessageChannel<ByteData>(
+Future<TestStepResult> basicBinaryHandshake(ByteData? message) async {
+  const BasicMessageChannel<ByteData?> channel =
+      BasicMessageChannel<ByteData?>(
     'binary-msg',
-    const BinaryCodec(),
+    BinaryCodec(),
   );
-  return _basicMessageHandshake<ByteData>(
+  return _basicMessageHandshake<ByteData?>(
       'Binary >${toString(message)}<', channel, message);
 }
 
-Future<TestStepResult> basicStringHandshake(String message) async {
-  const BasicMessageChannel<String> channel = const BasicMessageChannel<String>(
+Future<TestStepResult> basicStringHandshake(String? message) async {
+  const BasicMessageChannel<String?> channel = BasicMessageChannel<String?>(
     'string-msg',
-    const StringCodec(),
+    StringCodec(),
   );
-  return _basicMessageHandshake<String>('String >$message<', channel, message);
+  return _basicMessageHandshake<String?>('String >$message<', channel, message);
 }
 
 Future<TestStepResult> basicJsonHandshake(dynamic message) async {
   const BasicMessageChannel<dynamic> channel =
-      const BasicMessageChannel<dynamic>(
+      BasicMessageChannel<dynamic>(
     'json-msg',
-    const JSONMessageCodec(),
+    JSONMessageCodec(),
   );
   return _basicMessageHandshake<dynamic>('JSON >$message<', channel, message);
 }
 
 Future<TestStepResult> basicStandardHandshake(dynamic message) async {
   const BasicMessageChannel<dynamic> channel =
-      const BasicMessageChannel<dynamic>(
+      BasicMessageChannel<dynamic>(
     'std-msg',
-    const ExtendedStandardMessageCodec(),
+    ExtendedStandardMessageCodec(),
   );
   return _basicMessageHandshake<dynamic>(
       'Standard >${toString(message)}<', channel, message);
 }
 
 Future<TestStepResult> basicBinaryMessageToUnknownChannel() async {
-  const BasicMessageChannel<ByteData> channel =
-      const BasicMessageChannel<ByteData>(
+  const BasicMessageChannel<ByteData?> channel =
+      BasicMessageChannel<ByteData?>(
     'binary-unknown',
-    const BinaryCodec(),
+    BinaryCodec(),
   );
   return _basicMessageToUnknownChannel<ByteData>('Binary', channel);
 }
 
 Future<TestStepResult> basicStringMessageToUnknownChannel() async {
-  const BasicMessageChannel<String> channel = const BasicMessageChannel<String>(
+  const BasicMessageChannel<String?> channel = BasicMessageChannel<String?>(
     'string-unknown',
-    const StringCodec(),
+    StringCodec(),
   );
   return _basicMessageToUnknownChannel<String>('String', channel);
 }
 
 Future<TestStepResult> basicJsonMessageToUnknownChannel() async {
   const BasicMessageChannel<dynamic> channel =
-      const BasicMessageChannel<dynamic>(
+      BasicMessageChannel<dynamic>(
     'json-unknown',
-    const JSONMessageCodec(),
+    JSONMessageCodec(),
   );
   return _basicMessageToUnknownChannel<dynamic>('JSON', channel);
 }
 
 Future<TestStepResult> basicStandardMessageToUnknownChannel() async {
   const BasicMessageChannel<dynamic> channel =
-      const BasicMessageChannel<dynamic>(
+      BasicMessageChannel<dynamic>(
     'std-unknown',
-    const ExtendedStandardMessageCodec(),
+    ExtendedStandardMessageCodec(),
   );
   return _basicMessageToUnknownChannel<dynamic>('Standard', channel);
 }
@@ -121,11 +121,11 @@ Future<TestStepResult> basicStandardMessageToUnknownChannel() async {
 /// the original message.
 Future<TestStepResult> _basicMessageHandshake<T>(
   String description,
-  BasicMessageChannel<T> channel,
+  BasicMessageChannel<T?> channel,
   T message,
 ) async {
   final List<dynamic> received = <dynamic>[];
-  channel.setMessageHandler((T message) async {
+  channel.setMessageHandler((T? message) async {
     received.add(message);
     return message;
   });
@@ -149,7 +149,7 @@ Future<TestStepResult> _basicMessageHandshake<T>(
 /// Sends a message on a channel that no one listens on.
 Future<TestStepResult> _basicMessageToUnknownChannel<T>(
   String description,
-  BasicMessageChannel<T> channel,
+  BasicMessageChannel<T?> channel,
 ) async {
   dynamic messageEcho = nothing;
   dynamic error = nothing;
@@ -169,10 +169,11 @@ Future<TestStepResult> _basicMessageToUnknownChannel<T>(
 }
 
 String toString(dynamic message) {
-  if (message is ByteData)
+  if (message is ByteData) {
     return message.buffer
         .asUint8List(message.offsetInBytes, message.lengthInBytes)
         .toString();
-  else
+  } else {
     return '$message';
+  }
 }

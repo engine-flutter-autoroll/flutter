@@ -1,11 +1,13 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'dart:async';
 
+import 'package:meta/meta.dart' show visibleForTesting;
+
 /// Signature for callbacks passed to [LicenseRegistry.addLicense].
-typedef Stream<LicenseEntry> LicenseEntryCollector();
+typedef LicenseEntryCollector = Stream<LicenseEntry> Function();
 
 /// A string that represents one paragraph in a [LicenseEntry].
 ///
@@ -54,7 +56,8 @@ abstract class LicenseEntry {
 }
 
 enum _LicenseEntryWithLineBreaksParserState {
-  beforeParagraph, inParagraph,
+  beforeParagraph,
+  inParagraph,
 }
 
 /// Variant of [LicenseEntry] for licenses that separate paragraphs with blank
@@ -63,14 +66,14 @@ enum _LicenseEntryWithLineBreaksParserState {
 /// unless they start with the same number of spaces as the previous line, in
 /// which case it's assumed they are a continuation of an indented paragraph.
 ///
-/// ## Sample code
+/// {@tool snippet}
 ///
 /// For example, the BSD license in this format could be encoded as follows:
 ///
 /// ```dart
 /// void initMyLibrary() {
-///   LicenseRegistry.addLicense(() async* {
-///     yield new LicenseEntryWithLineBreaks(<String>['my_library'], '''
+///   LicenseRegistry.addLicense(() => Stream<LicenseEntry>.value(
+///     const LicenseEntryWithLineBreaks(<String>['my_library'], '''
 /// Copyright 2016 The Sample Authors. All rights reserved.
 ///
 /// Redistribution and use in source and binary forms, with or without
@@ -97,10 +100,12 @@ enum _LicenseEntryWithLineBreaksParserState {
 /// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 /// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 /// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-/// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.''');
-///   });
+/// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.''',
+///     ),
+///   ));
 /// }
 /// ```
+/// {@end-tool}
 ///
 /// This would result in a license with six [paragraphs], the third, fourth, and
 /// fifth being indented one level.
@@ -111,7 +116,7 @@ enum _LicenseEntryWithLineBreaksParserState {
 /// license per frame is reasonable; doing more at the same time is ill-advised.
 /// Consider doing all the work at once using [compute] to move the work to
 /// another thread, or spreading the work across multiple frames using
-/// [scheduleTask].
+/// [SchedulerBinding.scheduleTask].
 class LicenseEntryWithLineBreaks extends LicenseEntry {
   /// Create a license entry for a license whose text is hard-wrapped within
   /// paragraphs and has paragraph breaks denoted by blank lines or with
@@ -137,14 +142,15 @@ class LicenseEntryWithLineBreaks extends LicenseEntry {
   final String text;
 
   @override
-  Iterable<LicenseParagraph> get paragraphs sync* {
+  Iterable<LicenseParagraph> get paragraphs {
     int lineStart = 0;
     int currentPosition = 0;
     int lastLineIndent = 0;
     int currentLineIndent = 0;
-    int currentParagraphIndentation;
+    int? currentParagraphIndentation;
     _LicenseEntryWithLineBreaksParserState state = _LicenseEntryWithLineBreaksParserState.beforeParagraph;
     final List<String> lines = <String>[];
+    final List<LicenseParagraph> result = <LicenseParagraph>[];
 
     void addLine() {
       assert(lineStart < currentPosition);
@@ -154,7 +160,7 @@ class LicenseEntryWithLineBreaks extends LicenseEntry {
     LicenseParagraph getParagraph() {
       assert(lines.isNotEmpty);
       assert(currentParagraphIndentation != null);
-      final LicenseParagraph result = new LicenseParagraph(lines.join(' '), currentParagraphIndentation);
+      final LicenseParagraph result = LicenseParagraph(lines.join(' '), currentParagraphIndentation!);
       assert(result.text.trimLeft() == result.text);
       assert(result.text.isNotEmpty);
       lines.clear();
@@ -176,10 +182,15 @@ class LicenseEntryWithLineBreaks extends LicenseEntry {
               currentLineIndent += 8;
               state = _LicenseEntryWithLineBreaksParserState.beforeParagraph;
               break;
+            case '\r':
             case '\n':
             case '\f':
               if (lines.isNotEmpty) {
-                yield getParagraph();
+                result.add(getParagraph());
+              }
+              if (text[currentPosition] == '\r' && currentPosition < text.length - 1
+                  && text[currentPosition + 1] == '\n') {
+                currentPosition += 1;
               }
               lastLineIndent = 0;
               currentLineIndent = 0;
@@ -199,16 +210,17 @@ class LicenseEntryWithLineBreaks extends LicenseEntry {
             startParagraph:
             default:
               if (lines.isNotEmpty && currentLineIndent > lastLineIndent) {
-                yield getParagraph();
+                result.add(getParagraph());
                 currentParagraphIndentation = null;
               }
               // The following is a wild heuristic for guessing the indentation level.
               // It happens to work for common variants of the BSD and LGPL licenses.
               if (currentParagraphIndentation == null) {
-                if (currentLineIndent > 10)
+                if (currentLineIndent > 10) {
                   currentParagraphIndentation = LicenseParagraph.centeredIndent;
-                else
+                } else {
                   currentParagraphIndentation = currentLineIndent ~/ 3;
+                }
               }
               state = _LicenseEntryWithLineBreaksParserState.inParagraph;
           }
@@ -224,7 +236,7 @@ class LicenseEntryWithLineBreaks extends LicenseEntry {
               break;
             case '\f':
               addLine();
-              yield getParagraph();
+              result.add(getParagraph());
               lastLineIndent = 0;
               currentLineIndent = 0;
               currentParagraphIndentation = null;
@@ -241,14 +253,15 @@ class LicenseEntryWithLineBreaks extends LicenseEntry {
     switch (state) {
       case _LicenseEntryWithLineBreaksParserState.beforeParagraph:
         if (lines.isNotEmpty) {
-          yield getParagraph();
+          result.add(getParagraph());
         }
         break;
       case _LicenseEntryWithLineBreaksParserState.inParagraph:
         addLine();
-        yield getParagraph();
+        result.add(getParagraph());
         break;
     }
+    return result;
   }
 }
 
@@ -279,9 +292,11 @@ class LicenseEntryWithLineBreaks extends LicenseEntry {
 ///  * [AboutListTile], which is a widget that can be added to a [Drawer]. When
 ///    tapped it calls [showAboutDialog].
 class LicenseRegistry {
+  // This class is not meant to be instantiated or extended; this constructor
+  // prevents instantiation and extension.
   LicenseRegistry._();
 
-  static List<LicenseEntryCollector> _collectors;
+  static List<LicenseEntryCollector>? _collectors;
 
   /// Adds licenses to the registry.
   ///
@@ -292,16 +307,33 @@ class LicenseRegistry {
   /// licenses, the closure will not be called.
   static void addLicense(LicenseEntryCollector collector) {
     _collectors ??= <LicenseEntryCollector>[];
-    _collectors.add(collector);
+    _collectors!.add(collector);
   }
 
   /// Returns the licenses that have been registered.
   ///
   /// Generating the list of licenses is expensive.
-  static Stream<LicenseEntry> get licenses async* {
-    if (_collectors == null)
-      return;
-    for (LicenseEntryCollector collector in _collectors)
-      yield* collector();
+  static Stream<LicenseEntry> get licenses {
+    if (_collectors == null) {
+      return const Stream<LicenseEntry>.empty();
+    }
+
+    late final StreamController<LicenseEntry> controller;
+    controller = StreamController<LicenseEntry>(
+      onListen: () async {
+        for (final LicenseEntryCollector collector in _collectors!) {
+          await controller.addStream(collector());
+        }
+        await controller.close();
+      },
+    );
+    return controller.stream;
+  }
+
+  /// Resets the internal state of [LicenseRegistry]. Intended for use in
+  /// testing.
+  @visibleForTesting
+  static void reset() {
+    _collectors = null;
   }
 }

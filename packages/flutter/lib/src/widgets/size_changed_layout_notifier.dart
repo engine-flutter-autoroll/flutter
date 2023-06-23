@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,10 @@ import 'notification_listener.dart';
 ///
 ///  * [SizeChangedLayoutNotifier], which sends this notification.
 ///  * [LayoutChangedNotification], of which this is a subclass.
-class SizeChangedLayoutNotification extends LayoutChangedNotification { }
+class SizeChangedLayoutNotification extends LayoutChangedNotification {
+  /// Create a new [SizeChangedLayoutNotification].
+  const SizeChangedLayoutNotification();
+}
 
 /// A widget that automatically dispatches a [SizeChangedLayoutNotification]
 /// when the layout dimensions of its child change.
@@ -53,24 +56,24 @@ class SizeChangedLayoutNotifier extends SingleChildRenderObjectWidget {
   /// Creates a [SizeChangedLayoutNotifier] that dispatches layout changed
   /// notifications when [child] changes layout size.
   const SizeChangedLayoutNotifier({
-    Key key,
-    Widget child
-  }) : super(key: key, child: child);
+    super.key,
+    super.child,
+  });
 
   @override
-  _RenderSizeChangedWithCallback createRenderObject(BuildContext context) {
-    return new _RenderSizeChangedWithCallback(
+  RenderObject createRenderObject(BuildContext context) {
+    return _RenderSizeChangedWithCallback(
       onLayoutChangedCallback: () {
-        new SizeChangedLayoutNotification().dispatch(context);
-      }
+        const SizeChangedLayoutNotification().dispatch(context);
+      },
     );
   }
 }
 
 class _RenderSizeChangedWithCallback extends RenderProxyBox {
   _RenderSizeChangedWithCallback({
-    RenderBox child,
-    @required this.onLayoutChangedCallback
+    RenderBox? child,
+    required this.onLayoutChangedCallback,
   }) : assert(onLayoutChangedCallback != null),
        super(child);
 
@@ -81,15 +84,16 @@ class _RenderSizeChangedWithCallback extends RenderProxyBox {
 
   final VoidCallback onLayoutChangedCallback;
 
-  Size _oldSize;
+  Size? _oldSize;
 
   @override
   void performLayout() {
     super.performLayout();
     // Don't send the initial notification, or this will be SizeObserver all
     // over again!
-    if (_oldSize != null && size != _oldSize)
+    if (_oldSize != null && size != _oldSize) {
       onLayoutChangedCallback();
+    }
     _oldSize = size;
   }
 }

@@ -1,11 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
-
+import 'package:flutter/foundation.dart' show clampDouble;
 import 'basic_types.dart';
 
 /// Position a child box within a container box, either above or below a target
@@ -39,12 +38,12 @@ import 'basic_types.dart';
 ///
 /// The arguments must not be null.
 Offset positionDependentBox({
-  @required Size size,
-  @required Size childSize,
-  @required Offset target,
-  @required bool preferBelow,
-  double verticalOffset: 0.0,
-  double margin: 10.0,
+  required Size size,
+  required Size childSize,
+  required Offset target,
+  required bool preferBelow,
+  double verticalOffset = 0.0,
+  double margin = 10.0,
 }) {
   assert(size != null);
   assert(childSize != null);
@@ -57,16 +56,17 @@ Offset positionDependentBox({
   final bool fitsAbove = target.dy - verticalOffset - childSize.height >= margin;
   final bool tooltipBelow = preferBelow ? fitsBelow || !fitsAbove : !(fitsAbove || !fitsBelow);
   double y;
-  if (tooltipBelow)
+  if (tooltipBelow) {
     y = math.min(target.dy + verticalOffset, size.height - margin);
-  else
+  } else {
     y = math.max(target.dy - verticalOffset - childSize.height, margin);
+  }
   // HORIZONTAL DIRECTION
   double x;
   if (size.width - margin * 2.0 < childSize.width) {
     x = (size.width - childSize.width) / 2.0;
   } else {
-    final double normalizedTargetX = target.dx.clamp(margin, size.width - margin);
+    final double normalizedTargetX = clampDouble(target.dx, margin, size.width - margin);
     final double edge = margin + childSize.width / 2.0;
     if (normalizedTargetX < edge) {
       x = margin;
@@ -76,5 +76,5 @@ Offset positionDependentBox({
       x = normalizedTargetX - childSize.width / 2.0;
     }
   }
-  return new Offset(x, y);
+  return Offset(x, y);
 }

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,14 +12,15 @@ import 'mock_image_http.dart';
 
 void main() {
   testWidgets('Card Collection smoke test', (WidgetTester tester) async {
-    HttpOverrides.runZoned(() async {
+    HttpOverrides.runZoned<Future<void>>(() async {
       card_collection.main(); // builds the app and schedules a frame but doesn't trigger one
       await tester.pump(); // see https://github.com/flutter/flutter/issues/1865
       await tester.pump(); // triggers a frame
 
       final Finder navigationMenu = find.byWidgetPredicate((Widget widget) {
-        if (widget is Tooltip)
+        if (widget is Tooltip) {
           return widget.message == 'Open navigation menu';
+        }
         return false;
       });
 

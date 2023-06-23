@@ -1,58 +1,65 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
+import '../base/common.dart';
 import '../build_info.dart';
 import '../bundle.dart';
-import '../runner/flutter_command.dart' show FlutterOptions;
+import '../bundle_builder.dart';
+import '../features.dart';
+import '../globals.dart' as globals;
+import '../project.dart';
+import '../reporting/reporting.dart';
+import '../runner/flutter_command.dart';
 import 'build.dart';
 
 class BuildBundleCommand extends BuildSubCommand {
-  BuildBundleCommand({bool verboseHelp: false}) {
+  BuildBundleCommand({
+    bool verboseHelp = false,
+    BundleBuilder? bundleBuilder,
+  }) :  _bundleBuilder = bundleBuilder ?? BundleBuilder(), super(verboseHelp: verboseHelp) {
     usesTargetOption();
+    usesFilesystemOptions(hide: !verboseHelp);
+    usesBuildNumberOption();
+    addBuildModeFlags(verboseHelp: verboseHelp, defaultToRelease: false);
+    usesDartDefineOption();
+    usesExtraDartFlagOptions(verboseHelp: verboseHelp);
     argParser
-      ..addFlag('precompiled', negatable: false)
-      // This option is still referenced by the iOS build scripts. We should
-      // remove it once we've updated those build scripts.
-      ..addOption('asset-base', help: 'Ignored. Will be removed.', hide: !verboseHelp)
-      ..addOption('manifest', defaultsTo: defaultManifestPath)
-      ..addOption('private-key', defaultsTo: defaultPrivateKeyPath)
-      ..addOption('snapshot', defaultsTo: defaultSnapshotPath)
-      ..addOption('depfile', defaultsTo: defaultDepfilePath)
-      ..addOption('kernel-file', defaultsTo: defaultApplicationKernelPath)
-      ..addFlag('preview-dart-2',
-        defaultsTo: true,
-        hide: !verboseHelp,
-        help: 'Preview Dart 2.0 functionality.',
+      ..addOption('depfile',
+        defaultsTo: defaultDepfilePath,
+        help: 'A file path where a depfile will be written. '
+              'This contains all build inputs and outputs in a Make-style syntax.'
       )
-      ..addFlag('track-widget-creation',
-        hide: !verboseHelp,
-        help: 'Track widget creation locations. Requires Dart 2.0 functionality.',
+      ..addOption('target-platform',
+        defaultsTo: 'android-arm',
+        allowed: const <String>[
+          'android-arm',
+          'android-arm64',
+          'android-x86',
+          'android-x64',
+          'ios',
+          'darwin',
+          'linux-x64',
+          'linux-arm64',
+          'windows-x64',
+        ],
+        help: 'The architecture for which to build the application.',
       )
-      ..addMultiOption(FlutterOptions.kExtraFrontEndOptions,
-        splitCommas: true,
-        hide: true,
+      ..addOption('asset-dir',
+        defaultsTo: getAssetBuildDirectory(),
+        help: 'The output directory for the kernel_blob.bin file, the native snapshot, the assets, etc. '
+              'Can be used to redirect the output when driving the Flutter toolchain from another build system.',
       )
-      ..addOption('asset-dir', defaultsTo: getAssetBuildDirectory())
-      ..addFlag('report-licensed-packages',
-        help: 'Whether to report the names of all the packages that are included '
-              'in the application\'s LICENSE file.',
-        defaultsTo: false)
-      ..addMultiOption('filesystem-root',
+      ..addFlag(
+        'tree-shake-icons',
         hide: !verboseHelp,
-        help: 'Specify the path, that is used as root in a virtual file system\n'
-            'for compilation. Input file name should be specified as Uri in\n'
-            'filesystem-scheme scheme. Use only in Dart 2 mode.\n'
-            'Requires --output-dill option to be explicitly specified.\n')
-      ..addOption('filesystem-scheme',
-        defaultsTo: 'org-dartlang-root',
-        hide: !verboseHelp,
-        help: 'Specify the scheme that is used for virtual file system used in\n'
-            'compilation. See more details on filesystem-root option.\n');
+        help: '(deprecated) Icon font tree shaking is not supported by this command.',
+      );
     usesPubOption();
+    usesTrackWidgetCreation(verboseHelp: verboseHelp);
   }
+
+  final BundleBuilder _bundleBuilder;
 
   @override
   final String name = 'bundle';
@@ -66,24 +73,74 @@ class BuildBundleCommand extends BuildSubCommand {
       ' iOS runtimes.';
 
   @override
-  Future<Null> runCommand() async {
-    await super.runCommand();
-
-    await build(
-      mainPath: targetFile,
-      manifestPath: argResults['manifest'],
-      snapshotPath: argResults['snapshot'],
-      applicationKernelFilePath: argResults['kernel-file'],
-      depfilePath: argResults['depfile'],
-      privateKeyPath: argResults['private-key'],
-      assetDirPath: argResults['asset-dir'],
-      previewDart2: argResults['preview-dart-2'],
-      precompiledSnapshot: argResults['precompiled'],
-      reportLicensedPackages: argResults['report-licensed-packages'],
-      trackWidgetCreation: argResults['track-widget-creation'],
-      extraFrontEndOptions: argResults[FlutterOptions.kExtraFrontEndOptions],
-      fileSystemScheme: argResults['filesystem-scheme'],
-      fileSystemRoots: argResults['filesystem-root'],
+  Future<CustomDimensions> get usageValues async {
+    final String projectDir = globals.fs.file(targetFile).parent.parent.path;
+    final FlutterProject flutterProject = FlutterProject.fromDirectory(globals.fs.directory(projectDir));
+    if (flutterProject == null) {
+      return const CustomDimensions();
+    }
+    return CustomDimensions(
+      commandBuildBundleTargetPlatform: stringArgDeprecated('target-platform'),
+      commandBuildBundleIsModule: flutterProject.isModule,
     );
+  }
+
+  @override
+  Future<void> validateCommand() async {
+    if (boolArgDeprecated('tree-shake-icons')) {
+      throwToolExit('The "--tree-shake-icons" flag is deprecated for "build bundle" and will be removed in a future version of Flutter.');
+    }
+    return super.validateCommand();
+  }
+
+  @override
+  Future<FlutterCommandResult> runCommand() async {
+    final String targetPlatform = stringArgDeprecated('target-platform')!;
+    final TargetPlatform platform = getTargetPlatformForName(targetPlatform);
+    if (platform == null) {
+      throwToolExit('Unknown platform: $targetPlatform');
+    }
+    // Check for target platforms that are only allowed via feature flags.
+    switch (platform) {
+      case TargetPlatform.darwin:
+        if (!featureFlags.isMacOSEnabled) {
+          throwToolExit('macOS is not a supported target platform.');
+        }
+        break;
+      case TargetPlatform.windows_x64:
+        if (!featureFlags.isWindowsEnabled) {
+          throwToolExit('Windows is not a supported target platform.');
+        }
+        break;
+      case TargetPlatform.linux_x64:
+      case TargetPlatform.linux_arm64:
+        if (!featureFlags.isLinuxEnabled) {
+          throwToolExit('Linux is not a supported target platform.');
+        }
+        break;
+      case TargetPlatform.android:
+      case TargetPlatform.android_arm:
+      case TargetPlatform.android_arm64:
+      case TargetPlatform.android_x64:
+      case TargetPlatform.android_x86:
+      case TargetPlatform.fuchsia_arm64:
+      case TargetPlatform.fuchsia_x64:
+      case TargetPlatform.ios:
+      case TargetPlatform.tester:
+      case TargetPlatform.web_javascript:
+        break;
+    }
+
+    final BuildInfo buildInfo = await getBuildInfo();
+    displayNullSafetyMode(buildInfo);
+
+    await _bundleBuilder.build(
+      platform: platform,
+      buildInfo: buildInfo,
+      mainPath: targetFile,
+      depfilePath: stringArgDeprecated('depfile'),
+      assetDirPath: stringArgDeprecated('asset-dir'),
+    );
+    return FlutterCommandResult.success();
   }
 }

@@ -1,13 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:flutter/foundation.dart';
 import 'package:stack_trace/stack_trace.dart' as stack_trace;
-import 'package:test/test.dart' as test_package;
+
+// ignore: deprecated_member_use
+import 'package:test_api/test_api.dart' as test_package;
 
 /// Signature for the [reportTestException] callback.
-typedef void TestExceptionReporter(FlutterErrorDetails details, String testDescription);
+typedef TestExceptionReporter = void Function(FlutterErrorDetails details, String testDescription);
 
 /// A function that is called by the test framework when an unexpected error
 /// occurred during a test.
@@ -34,9 +36,10 @@ void _defaultTestExceptionReporter(FlutterErrorDetails errorDetails, String test
   // get the same effect here by calling that error handler directly or indeed just throwing.
   // However, we call registerException because that's the semantically correct thing...
   String additional = '';
-  if (testDescription.isNotEmpty)
+  if (testDescription.isNotEmpty) {
     additional = '\nThe test description was: $testDescription';
+  }
   test_package.registerException('Test failed. See exception logs above.$additional', _emptyStackTrace);
 }
 
-final StackTrace _emptyStackTrace = new stack_trace.Chain(const <stack_trace.Trace>[]);
+final StackTrace _emptyStackTrace = stack_trace.Chain(const <stack_trace.Trace>[]);

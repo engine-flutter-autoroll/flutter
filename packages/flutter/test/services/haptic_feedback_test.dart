@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('Haptic feedback control test', () async {
     final List<MethodCall> log = <MethodCall>[];
 
-    SystemChannels.platform.setMockMethodCallHandler((MethodCall methodCall) async {
+    TestDefaultBinaryMessengerBinding.instance!.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (MethodCall methodCall) async {
       log.add(methodCall);
+      return null;
     });
 
     await HapticFeedback.vibrate();
@@ -20,14 +23,15 @@ void main() {
   });
 
   test('Haptic feedback variation tests', () async {
-    Future<void> callAndVerifyHapticFunction(Function hapticFunction, String platformMethodArgument) async {
+    Future<void> callAndVerifyHapticFunction(Future<void> Function() hapticFunction, String platformMethodArgument) async {
       final List<MethodCall> log = <MethodCall>[];
 
-      SystemChannels.platform.setMockMethodCallHandler((MethodCall methodCall) async {
+      TestDefaultBinaryMessengerBinding.instance!.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (MethodCall methodCall) async {
         log.add(methodCall);
+        return null;
       });
 
-      await Function.apply(hapticFunction, null);
+      await hapticFunction();
       expect(log, hasLength(1));
       expect(
         log.last,

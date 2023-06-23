@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,49 +8,150 @@ import 'dart:ui' as ui show Image;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
-class TestImageInfo implements ImageInfo {
-  const TestImageInfo(this.value, { this.image, this.scale });
-
-  @override
-  final ui.Image image;
-
-  @override
-  final double scale;
+class TestImageInfo extends ImageInfo {
+  const TestImageInfo(this.value, {
+    required super.image,
+    super.scale,
+    super.debugLabel,
+  });
 
   final int value;
 
   @override
-  String toString() => '$runtimeType($value)';
+  String toString() => '${objectRuntimeType(this, 'TestImageInfo')}($value)';
+
+  @override
+  TestImageInfo clone() {
+    return TestImageInfo(value, image: image.clone(), scale: scale, debugLabel: debugLabel);
+  }
+
+  @override
+  int get hashCode => Object.hash(value, image, scale, debugLabel);
+
+  @override
+  bool operator ==(Object other) {
+    if (other.runtimeType != runtimeType) {
+      return false;
+    }
+    return other is TestImageInfo
+        && other.value == value
+        && other.image.isCloneOf(image)
+        && other.scale == scale
+        && other.debugLabel == debugLabel;
+  }
 }
 
 class TestImageProvider extends ImageProvider<int> {
-  const TestImageProvider(this.key, this.imageValue, { this.image });
+  const TestImageProvider(this.key, this.imageValue, { required this.image })
+      : assert(image != null);
+
   final int key;
   final int imageValue;
   final ui.Image image;
 
   @override
   Future<int> obtainKey(ImageConfiguration configuration) {
-    return new Future<int>.value(key);
+    return Future<int>.value(key);
   }
 
   @override
-  ImageStreamCompleter load(int key) {
-    return new OneFrameImageStreamCompleter(
-      new SynchronousFuture<ImageInfo>(new TestImageInfo(imageValue, image: image))
+  ImageStreamCompleter load(int key, DecoderCallback decode) {
+    return OneFrameImageStreamCompleter(
+      SynchronousFuture<ImageInfo>(TestImageInfo(imageValue, image: image.clone())),
     );
   }
 
   @override
-  String toString() => '$runtimeType($key, $imageValue)';
+  String toString() => '${objectRuntimeType(this, 'TestImageProvider')}($key, $imageValue)';
+}
+
+class FailingTestImageProvider extends TestImageProvider {
+  const FailingTestImageProvider(super.key, super.imageValue, { required super.image });
+
+  @override
+  ImageStreamCompleter load(int key, DecoderCallback decode) {
+    return OneFrameImageStreamCompleter(Future<ImageInfo>.sync(() => Future<ImageInfo>.error('loading failed!')));
+  }
 }
 
 Future<ImageInfo> extractOneFrame(ImageStream stream) {
-  final Completer<ImageInfo> completer = new Completer<ImageInfo>();
-  void listener(ImageInfo image, bool synchronousCall) {
+  final Completer<ImageInfo> completer = Completer<ImageInfo>();
+  late ImageStreamListener listener;
+  listener = ImageStreamListener((ImageInfo image, bool synchronousCall) {
     completer.complete(image);
     stream.removeListener(listener);
-  }
+  });
   stream.addListener(listener);
   return completer.future;
+}
+
+class ErrorImageProvider extends ImageProvider<ErrorImageProvider> {
+  @override
+  ImageStreamCompleter loadBuffer(ErrorImageProvider key, DecoderBufferCallback decode) {
+    throw Error();
+  }
+
+  @override
+  ImageStreamCompleter load(ErrorImageProvider key, DecoderCallback decode) {
+    throw Error();
+  }
+
+  @override
+  Future<ErrorImageProvider> obtainKey(ImageConfiguration configuration) {
+    return SynchronousFuture<ErrorImageProvider>(this);
+  }
+}
+
+class ObtainKeyErrorImageProvider extends ImageProvider<ObtainKeyErrorImageProvider> {
+  @override
+  ImageStreamCompleter loadBuffer(ObtainKeyErrorImageProvider key, DecoderBufferCallback decode) {
+    throw Error();
+  }
+
+  @override
+  Future<ObtainKeyErrorImageProvider> obtainKey(ImageConfiguration configuration) {
+    throw Error();
+  }
+
+  @override
+  ImageStreamCompleter load(ObtainKeyErrorImageProvider key, DecoderCallback decode) {
+    throw UnimplementedError();
+  }
+}
+
+class LoadErrorImageProvider extends ImageProvider<LoadErrorImageProvider> {
+  @override
+  ImageStreamCompleter loadBuffer(LoadErrorImageProvider key, DecoderBufferCallback decode) {
+    throw Error();
+  }
+
+  @override
+  Future<LoadErrorImageProvider> obtainKey(ImageConfiguration configuration) {
+    return SynchronousFuture<LoadErrorImageProvider>(this);
+  }
+
+  @override
+  ImageStreamCompleter load(LoadErrorImageProvider key, DecoderCallback decode) {
+    throw UnimplementedError();
+  }
+}
+
+class LoadErrorCompleterImageProvider extends ImageProvider<LoadErrorCompleterImageProvider> {
+  @override
+  ImageStreamCompleter load(LoadErrorCompleterImageProvider key, DecoderCallback decode) {
+    final Completer<ImageInfo> completer = Completer<ImageInfo>.sync();
+    completer.completeError(Error());
+    return OneFrameImageStreamCompleter(completer.future);
+  }
+
+  @override
+  Future<LoadErrorCompleterImageProvider> obtainKey(ImageConfiguration configuration) {
+    return SynchronousFuture<LoadErrorCompleterImageProvider>(this);
+  }
+}
+
+class TestImageStreamCompleter extends ImageStreamCompleter {
+  void testSetImage(ui.Image image) {
+    setImage(ImageInfo(image: image));
+  }
 }

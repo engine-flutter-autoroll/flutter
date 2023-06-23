@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,13 +44,14 @@ enum PerformanceOverlayOption {
 
 /// Displays performance statistics.
 ///
-/// The overlay show two time series. The first shows how much time was required
-/// on this thread to produce each frame. The second shows how much time was
-/// required on the GPU thread to produce each frame. Ideally, both these values
-/// would be less than the total frame budget for the hardware on which the app
-/// is running. For example, if the hardware has a screen that updates at 60 Hz,
-/// each thread should ideally spend less than 16ms producing each frame. This
-/// ideal condition is indicated by a green vertical line for each thread.
+/// The overlay shows two time series. The first shows how much time was
+/// required on this thread to produce each frame. The second shows how much
+/// time was required on the raster thread (formerly known as the GPU thread)
+/// to produce each frame. Ideally, both these values would be less than
+/// the total frame budget for the hardware on which the app is running.
+/// For example, if the hardware has a screen that updates at 60 Hz, each
+/// thread should ideally spend less than 16ms producing each frame.
+/// This ideal condition is indicated by a green vertical line for each thread.
 /// Otherwise, the performance overlay shows a red vertical line.
 ///
 /// The simplest way to show the performance overlay is to set
@@ -62,10 +63,10 @@ class RenderPerformanceOverlay extends RenderBox {
   /// The [optionsMask], [rasterizerThreshold], [checkerboardRasterCacheImages],
   /// and [checkerboardOffscreenLayers] arguments must not be null.
   RenderPerformanceOverlay({
-    int optionsMask: 0,
-    int rasterizerThreshold: 0,
-    bool checkerboardRasterCacheImages: false,
-    bool checkerboardOffscreenLayers: false,
+    int optionsMask = 0,
+    int rasterizerThreshold = 0,
+    bool checkerboardRasterCacheImages = false,
+    bool checkerboardOffscreenLayers = false,
   }) : assert(optionsMask != null),
        assert(rasterizerThreshold != null),
        assert(checkerboardRasterCacheImages != null),
@@ -81,8 +82,9 @@ class RenderPerformanceOverlay extends RenderBox {
   int _optionsMask;
   set optionsMask(int value) {
     assert(value != null);
-    if (value == _optionsMask)
+    if (value == _optionsMask) {
       return;
+    }
     _optionsMask = value;
     markNeedsPaint();
   }
@@ -94,8 +96,9 @@ class RenderPerformanceOverlay extends RenderBox {
   int _rasterizerThreshold;
   set rasterizerThreshold(int value) {
     assert(value != null);
-    if (value == _rasterizerThreshold)
+    if (value == _rasterizerThreshold) {
       return;
+    }
     _rasterizerThreshold = value;
     markNeedsPaint();
   }
@@ -105,8 +108,9 @@ class RenderPerformanceOverlay extends RenderBox {
   bool _checkerboardRasterCacheImages;
   set checkerboardRasterCacheImages(bool value) {
     assert(value != null);
-    if (value == _checkerboardRasterCacheImages)
+    if (value == _checkerboardRasterCacheImages) {
       return;
+    }
     _checkerboardRasterCacheImages = value;
     markNeedsPaint();
   }
@@ -116,8 +120,9 @@ class RenderPerformanceOverlay extends RenderBox {
   bool _checkerboardOffscreenLayers;
   set checkerboardOffscreenLayers(bool value) {
     assert(value != null);
-    if (value == _checkerboardOffscreenLayers)
+    if (value == _checkerboardOffscreenLayers) {
       return;
+    }
     _checkerboardOffscreenLayers = value;
     markNeedsPaint();
   }
@@ -142,11 +147,13 @@ class RenderPerformanceOverlay extends RenderBox {
     const double kDefaultGraphHeight = 80.0;
     double result = 0.0;
     if ((optionsMask | (1 << PerformanceOverlayOption.displayRasterizerStatistics.index) > 0) ||
-        (optionsMask | (1 << PerformanceOverlayOption.visualizeRasterizerStatistics.index) > 0))
+        (optionsMask | (1 << PerformanceOverlayOption.visualizeRasterizerStatistics.index) > 0)) {
       result += kDefaultGraphHeight;
+    }
     if ((optionsMask | (1 << PerformanceOverlayOption.displayEngineStatistics.index) > 0) ||
-        (optionsMask | (1 << PerformanceOverlayOption.visualizeEngineStatistics.index) > 0))
+        (optionsMask | (1 << PerformanceOverlayOption.visualizeEngineStatistics.index) > 0)) {
       result += kDefaultGraphHeight;
+    }
     return result;
   }
 
@@ -161,15 +168,15 @@ class RenderPerformanceOverlay extends RenderBox {
   }
 
   @override
-  void performResize() {
-    size = constraints.constrain(new Size(double.infinity, _intrinsicHeight));
+  Size computeDryLayout(BoxConstraints constraints) {
+    return constraints.constrain(Size(double.infinity, _intrinsicHeight));
   }
 
   @override
   void paint(PaintingContext context, Offset offset) {
     assert(needsCompositing);
-    context.addLayer(new PerformanceOverlayLayer(
-      overlayRect: new Rect.fromLTWH(offset.dx, offset.dy, size.width, size.height),
+    context.addLayer(PerformanceOverlayLayer(
+      overlayRect: Rect.fromLTWH(offset.dx, offset.dy, size.width, size.height),
       optionsMask: optionsMask,
       rasterizerThreshold: rasterizerThreshold,
       checkerboardRasterCacheImages: checkerboardRasterCacheImages,

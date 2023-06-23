@@ -1,11 +1,13 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:ui' as ui show Gradient, lerpDouble;
 
 import 'package:flutter/foundation.dart';
+import 'package:vector_math/vector_math_64.dart';
 
 import 'alignment.dart';
 import 'basic_types.dart';
@@ -16,34 +18,137 @@ class _ColorsAndStops {
   final List<double> stops;
 }
 
-_ColorsAndStops _interpolateColorsAndStops(List<Color> aColors, List<double> aStops, List<Color> bColors, List<double> bStops, double t) {
-  assert(aColors.length == bColors.length, 'Cannot interpolate between two gradients with a different number of colors.'); // TODO(ianh): remove limitation
-  assert((aStops == null && aColors.length == 2) || (aStops != null && aStops.length == aColors.length));
-  assert((bStops == null && bColors.length == 2) || (bStops != null && bStops.length == bColors.length));
-  final List<Color> interpolatedColors = <Color>[];
-  for (int i = 0; i < aColors.length; i += 1)
-    interpolatedColors.add(Color.lerp(aColors[i], bColors[i], t));
-  List<double> interpolatedStops;
-  if (aStops != null || bStops != null) {
-    aStops ??= const <double>[0.0, 1.0];
-    bStops ??= const <double>[0.0, 1.0];
-    assert(aStops.length == bStops.length);
-    interpolatedStops = <double>[];
-    for (int i = 0; i < aStops.length; i += 1)
-      interpolatedStops.add(ui.lerpDouble(aStops[i], bStops[i], t).clamp(0.0, 1.0));
+/// Calculate the color at position [t] of the gradient defined by [colors] and [stops].
+Color _sample(List<Color> colors, List<double> stops, double t) {
+  assert(colors != null);
+  assert(colors.isNotEmpty);
+  assert(stops != null);
+  assert(stops.isNotEmpty);
+  assert(t != null);
+  if (t <= stops.first) {
+    return colors.first;
   }
-  return new _ColorsAndStops(interpolatedColors, interpolatedStops);
+  if (t >= stops.last) {
+    return colors.last;
+  }
+  final int index = stops.lastIndexWhere((double s) => s <= t);
+  assert(index != -1);
+  return Color.lerp(
+      colors[index], colors[index + 1],
+      (t - stops[index]) / (stops[index + 1] - stops[index]),
+  )!;
+}
+
+_ColorsAndStops _interpolateColorsAndStops(
+  List<Color> aColors,
+  List<double> aStops,
+  List<Color> bColors,
+  List<double> bStops,
+  double t,
+) {
+  assert(aColors.length >= 2);
+  assert(bColors.length >= 2);
+  assert(aStops.length == aColors.length);
+  assert(bStops.length == bColors.length);
+  final SplayTreeSet<double> stops = SplayTreeSet<double>()
+    ..addAll(aStops)
+    ..addAll(bStops);
+  final List<double> interpolatedStops = stops.toList(growable: false);
+  final List<Color> interpolatedColors = interpolatedStops.map<Color>(
+          (double stop) => Color.lerp(_sample(aColors, aStops, stop), _sample(bColors, bStops, stop), t)!,
+  ).toList(growable: false);
+  return _ColorsAndStops(interpolatedColors, interpolatedStops);
+}
+
+/// Base class for transforming gradient shaders without applying the same
+/// transform to the entire canvas.
+///
+/// For example, a [SweepGradient] normally starts its gradation at 3 o'clock
+/// and draws clockwise. To have the sweep appear to start at 6 o'clock, supply
+/// a [GradientRotation] of `pi/4` radians (i.e. 45 degrees).
+@immutable
+abstract class GradientTransform {
+  /// Abstract const constructor. This constructor enables subclasses to provide
+  /// const constructors so that they can be used in const expressions.
+  const GradientTransform();
+
+  /// When a [Gradient] creates its [Shader], it will call this method to
+  /// determine what transform to apply to the shader for the given [Rect] and
+  /// [TextDirection].
+  ///
+  /// Implementers may return null from this method, which achieves the same
+  /// final effect as returning [Matrix4.identity].
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection});
+}
+
+/// A [GradientTransform] that rotates the gradient around the center-point of
+/// its bounding box.
+///
+/// {@tool snippet}
+///
+/// This sample would rotate a sweep gradient by a quarter turn clockwise:
+///
+/// ```dart
+/// const SweepGradient gradient = SweepGradient(
+///   colors: <Color>[Color(0xFFFFFFFF), Color(0xFF009900)],
+///   transform: GradientRotation(math.pi/4),
+/// );
+/// ```
+/// {@end-tool}
+@immutable
+class GradientRotation extends GradientTransform {
+  /// Constructs a [GradientRotation] for the specified angle.
+  ///
+  /// The angle is in radians in the clockwise direction.
+  const GradientRotation(this.radians);
+
+  /// The angle of rotation in radians in the clockwise direction.
+  final double radians;
+
+  @override
+  Matrix4 transform(Rect bounds, {TextDirection? textDirection}) {
+    assert(bounds != null);
+    final double sinRadians = math.sin(radians);
+    final double oneMinusCosRadians = 1 - math.cos(radians);
+    final Offset center = bounds.center;
+    final double originX = sinRadians * center.dy + oneMinusCosRadians * center.dx;
+    final double originY = -sinRadians * center.dx + oneMinusCosRadians * center.dy;
+
+    return Matrix4.identity()
+      ..translate(originX, originY)
+      ..rotateZ(radians);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    if (other.runtimeType != runtimeType) {
+      return false;
+    }
+    return other is GradientRotation
+        && other.radians == radians;
+  }
+
+  @override
+  int get hashCode => radians.hashCode;
+
+  @override
+  String toString() {
+    return '${objectRuntimeType(this, 'GradientRotation')}(radians: ${debugFormatDouble(radians)})';
+  }
 }
 
 /// A 2D gradient.
 ///
-/// This is an interface that allows [LinearGradient] and [RadialGradient]
-/// classes to be used interchangeably in [BoxDecoration]s.
+/// This is an interface that allows [LinearGradient], [RadialGradient], and
+/// [SweepGradient] classes to be used interchangeably in [BoxDecoration]s.
 ///
 /// See also:
 ///
-///  * [dart:ui.Gradient], the class in the [dart:ui] library that is
-///    encapsulated by this class and its subclasses.
+///  * [Gradient](dart-ui/Gradient-class.html), the class in the [dart:ui] library.
+///
 @immutable
 abstract class Gradient {
   /// Initialize the gradient's colors and stops.
@@ -54,9 +159,17 @@ abstract class Gradient {
   /// If specified, the [stops] argument must have the same number of entries as
   /// [colors] (this is also not verified until the [createShader] method is
   /// called).
+  ///
+  /// The [transform] argument can be applied to transform _only_ the gradient,
+  /// without rotating the canvas itself or other geometry on the canvas. For
+  /// example, a `GradientRotation(math.pi/4)` will result in a [SweepGradient]
+  /// that starts from a position of 6 o'clock instead of 3 o'clock, assuming
+  /// no other rotation or perspective transformations have been applied to the
+  /// [Canvas]. If null, no transformation is applied.
   const Gradient({
-    @required this.colors,
+    required this.colors,
     this.stops,
+    this.transform,
   }) : assert(colors != null);
 
   /// The colors the gradient should obtain at each of the stops.
@@ -83,16 +196,21 @@ abstract class Gradient {
   ///
   /// If stops is null, then a set of uniformly distributed stops is implied,
   /// with the first stop at 0.0 and the last stop at 1.0.
-  final List<double> stops;
+  final List<double>? stops;
+
+  /// The transform, if any, to apply to the gradient.
+  ///
+  /// This transform is in addition to any other transformations applied to the
+  /// canvas, but does not add any transformations to the canvas.
+  final GradientTransform? transform;
 
   List<double> _impliedStops() {
-    if (stops != null)
-      return stops;
-    if (colors.length == 2)
-      return null;
+    if (stops != null) {
+      return stops!;
+    }
     assert(colors.length >= 2, 'colors list must have at least two colors');
     final double separation = 1.0 / (colors.length - 1);
-    return new List<double>.generate(
+    return List<double>.generate(
       colors.length,
       (int index) => index * separation,
       growable: false,
@@ -104,7 +222,11 @@ abstract class Gradient {
   /// If the gradient's configuration is text-direction-dependent, for example
   /// it uses [AlignmentDirectional] objects instead of [Alignment]
   /// objects, then the `textDirection` argument must not be null.
-  Shader createShader(Rect rect, { TextDirection textDirection });
+  ///
+  /// The shader's transform will be resolved from the [transform] of this
+  /// gradient.
+  @factory
+  Shader createShader(Rect rect, { TextDirection? textDirection });
 
   /// Returns a new gradient with its properties scaled by the given factor.
   ///
@@ -141,9 +263,10 @@ abstract class Gradient {
   ///
   /// Instead of calling this directly, use [Gradient.lerp].
   @protected
-  Gradient lerpFrom(Gradient a, double t) {
-    if (a == null)
+  Gradient? lerpFrom(Gradient? a, double t) {
+    if (a == null) {
       return scale(t);
+    }
     return null;
   }
 
@@ -172,9 +295,10 @@ abstract class Gradient {
   ///
   /// Instead of calling this directly, use [Gradient.lerp].
   @protected
-  Gradient lerpTo(Gradient b, double t) {
-    if (b == null)
+  Gradient? lerpTo(Gradient? b, double t) {
+    if (b == null) {
       return scale(1.0 - t);
+    }
     return null;
   }
 
@@ -185,43 +309,41 @@ abstract class Gradient {
   /// function instead. If both return null, it returns `a` before `t == 0.5`
   /// and `b` after `t == 0.5`.
   ///
-  /// The `t` argument represents position on the timeline, with 0.0 meaning
-  /// that the interpolation has not started, returning `a` (or something
-  /// equivalent to `a`), 1.0 meaning that the interpolation has finished,
-  /// returning `b` (or something equivalent to `b`), and values in between
-  /// meaning that the interpolation is at the relevant point on the timeline
-  /// between `a` and `b`. The interpolation can be extrapolated beyond 0.0 and
-  /// 1.0, so negative values and values greater than 1.0 are valid (and can
-  /// easily be generated by curves such as [Curves.elasticInOut]).
-  ///
-  /// Values for `t` are usually obtained from an [Animation<double>], such as
-  /// an [AnimationController].
-  static Gradient lerp(Gradient a, Gradient b, double t) {
+  /// {@macro dart.ui.shadow.lerp}
+  static Gradient? lerp(Gradient? a, Gradient? b, double t) {
     assert(t != null);
-    Gradient result;
-    if (b != null)
+    Gradient? result;
+    if (b != null) {
       result = b.lerpFrom(a, t); // if a is null, this must return non-null
-    if (result == null && a != null)
+    }
+    if (result == null && a != null) {
       result = a.lerpTo(b, t); // if b is null, this must return non-null
-    if (result != null)
+    }
+    if (result != null) {
       return result;
-    if (a == null && b == null)
+    }
+    if (a == null && b == null) {
       return null;
+    }
     assert(a != null && b != null);
-    return t < 0.5 ? a.scale(1.0 - (t * 2.0)) : b.scale((t - 0.5) * 2.0);
+    return t < 0.5 ? a!.scale(1.0 - (t * 2.0)) : b!.scale((t - 0.5) * 2.0);
+  }
+
+  Float64List? _resolveTransform(Rect bounds, TextDirection? textDirection) {
+    return transform?.transform(bounds, textDirection: textDirection)?.storage;
   }
 }
 
 /// A 2D linear gradient.
 ///
-/// This class is used by [BoxDecoration] to represent gradients. This abstracts
-/// out the arguments to the [new ui.Gradient.linear] constructor from the
-/// `dart:ui` library.
+/// This class is used by [BoxDecoration] to represent linear gradients. This
+/// abstracts out the arguments to the [ui.Gradient.linear] constructor from
+/// the `dart:ui` library.
 ///
 /// A gradient has two anchor points, [begin] and [end]. The [begin] point
 /// corresponds to 0.0, and the [end] point corresponds to 1.0. These points are
 /// expressed in fractions, so that the same gradient can be reused with varying
-/// sized boxes without changing the parameters. (This contrasts with [new
+/// sized boxes without changing the parameters. (This contrasts with [
 /// ui.Gradient.linear], whose arguments are expressed in logical pixels.)
 ///
 /// The [colors] are described by a list of [Color] objects. There must be at
@@ -236,28 +358,20 @@ abstract class Gradient {
 /// Typically this class is used with [BoxDecoration], which does the painting.
 /// To use a [LinearGradient] to paint on a canvas directly, see [createShader].
 ///
-/// ## Sample code
+/// {@tool dartpad}
+/// This sample draws a picture with a gradient sweeping through different
+/// colors, by having a [Container] display a [BoxDecoration] with a
+/// [LinearGradient].
 ///
-/// This sample draws a picture that looks like vertical window shades by having
-/// a [Container] display a [BoxDecoration] with a [LinearGradient].
-///
-/// ```dart
-/// new Container(
-///   decoration: new BoxDecoration(
-///     gradient: new LinearGradient(
-///       begin: Alignment.topLeft,
-///       end: new Alignment(0.8, 0.0), // 10% of the width, so there are ten blinds.
-///       colors: [const Color(0xFFFFFFEE), const Color(0xFF999999)], // whitish to gray
-///       tileMode: TileMode.repeated, // repeats the gradient over the canvas
-///     ),
-///   ),
-/// )
-/// ```
+/// ** See code in examples/api/lib/painting/gradient/linear_gradient.0.dart **
+/// {@end-tool}
 ///
 /// See also:
 ///
 ///  * [RadialGradient], which displays a gradient in concentric circles, and
 ///    has an example which shows a different way to use [Gradient] objects.
+///  * [SweepGradient], which displays a gradient in a sweeping arc around a
+///    center point.
 ///  * [BoxDecoration], which can take a [LinearGradient] in its
 ///    [BoxDecoration.gradient] property.
 class LinearGradient extends Gradient {
@@ -266,26 +380,26 @@ class LinearGradient extends Gradient {
   /// The [colors] argument must not be null. If [stops] is non-null, it must
   /// have the same length as [colors].
   const LinearGradient({
-    this.begin: Alignment.centerLeft,
-    this.end: Alignment.centerRight,
-    @required List<Color> colors,
-    List<double> stops,
-    this.tileMode: TileMode.clamp,
+    this.begin = Alignment.centerLeft,
+    this.end = Alignment.centerRight,
+    required super.colors,
+    super.stops,
+    this.tileMode = TileMode.clamp,
+    super.transform,
   }) : assert(begin != null),
        assert(end != null),
-       assert(tileMode != null),
-       super(colors: colors, stops: stops);
+       assert(tileMode != null);
 
   /// The offset at which stop 0.0 of the gradient is placed.
   ///
-  /// If this is a [Alignment], then it is expressed as a vector from
+  /// If this is an [Alignment], then it is expressed as a vector from
   /// coordinate (0.0, 0.0), in a coordinate space that maps the center of the
   /// paint box at (0.0, 0.0) and the bottom right at (1.0, 1.0).
   ///
   /// For example, a begin offset of (-1.0, 0.0) is half way down the
   /// left side of the box.
   ///
-  /// It can also be a [AlignmentDirectional], where the start is the
+  /// It can also be an [AlignmentDirectional], where the start is the
   /// left in left-to-right contexts and the right in right-to-left contexts. If
   /// a text-direction-dependent value is provided here, then the [createShader]
   /// method will need to be given a [TextDirection].
@@ -293,14 +407,14 @@ class LinearGradient extends Gradient {
 
   /// The offset at which stop 1.0 of the gradient is placed.
   ///
-  /// If this is a [Alignment], then it is expressed as a vector from
+  /// If this is an [Alignment], then it is expressed as a vector from
   /// coordinate (0.0, 0.0), in a coordinate space that maps the center of the
   /// paint box at (0.0, 0.0) and the bottom right at (1.0, 1.0).
   ///
   /// For example, a begin offset of (1.0, 0.0) is half way down the
   /// right side of the box.
   ///
-  /// It can also be a [AlignmentDirectional], where the start is the left in
+  /// It can also be an [AlignmentDirectional], where the start is the left in
   /// left-to-right contexts and the right in right-to-left contexts. If a
   /// text-direction-dependent value is provided here, then the [createShader]
   /// method will need to be given a [TextDirection].
@@ -312,45 +426,48 @@ class LinearGradient extends Gradient {
   /// For details, see [TileMode].
   ///
   /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_clamp_linear.png)
+  /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_decal_linear.png)
   /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_mirror_linear.png)
   /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_repeated_linear.png)
   final TileMode tileMode;
 
   @override
-  Shader createShader(Rect rect, { TextDirection textDirection }) {
-    return new ui.Gradient.linear(
+  Shader createShader(Rect rect, { TextDirection? textDirection }) {
+    return ui.Gradient.linear(
       begin.resolve(textDirection).withinRect(rect),
       end.resolve(textDirection).withinRect(rect),
-      colors, _impliedStops(), tileMode,
+      colors, _impliedStops(), tileMode, _resolveTransform(rect, textDirection),
     );
   }
 
-  /// Returns a new [LinearGradient] with its properties (in particular the
-  /// colors) scaled by the given factor.
+  /// Returns a new [LinearGradient] with its colors scaled by the given factor.
   ///
-  /// If the factor is 0.0 or less, then the gradient is fully transparent.
+  /// Since the alpha component of the Color is what is scaled, a factor
+  /// of 0.0 or less results in a gradient that is fully transparent.
   @override
   LinearGradient scale(double factor) {
-    return new LinearGradient(
+    return LinearGradient(
       begin: begin,
       end: end,
-      colors: colors.map<Color>((Color color) => Color.lerp(null, color, factor)).toList(),
+      colors: colors.map<Color>((Color color) => Color.lerp(null, color, factor)!).toList(),
       stops: stops,
       tileMode: tileMode,
     );
   }
 
   @override
-  Gradient lerpFrom(Gradient a, double t) {
-    if (a == null || (a is LinearGradient && a.colors.length == colors.length)) // TODO(ianh): remove limitation
-      return LinearGradient.lerp(a, this, t);
+  Gradient? lerpFrom(Gradient? a, double t) {
+    if (a == null || (a is LinearGradient)) {
+      return LinearGradient.lerp(a as LinearGradient?, this, t);
+    }
     return super.lerpFrom(a, t);
   }
 
   @override
-  Gradient lerpTo(Gradient b, double t) {
-    if (b == null || (b is LinearGradient && b.colors.length == colors.length)) // TODO(ianh): remove limitation
-      return LinearGradient.lerp(this, b, t);
+  Gradient? lerpTo(Gradient? b, double t) {
+    if (b == null || (b is LinearGradient)) {
+      return LinearGradient.lerp(this, b as LinearGradient?, t);
+    }
     return super.lerpTo(b, t);
   }
 
@@ -362,7 +479,7 @@ class LinearGradient extends Gradient {
   ///
   /// If neither gradient is null, they must have the same number of [colors].
   ///
-  /// The `t` argument represents position on the timeline, with 0.0 meaning
+  /// The `t` argument represents a position on the timeline, with 0.0 meaning
   /// that the interpolation has not started, returning `a` (or something
   /// equivalent to `a`), 1.0 meaning that the interpolation has finished,
   /// returning `b` (or something equivalent to `b`), and values in between
@@ -373,18 +490,27 @@ class LinearGradient extends Gradient {
   ///
   /// Values for `t` are usually obtained from an [Animation<double>], such as
   /// an [AnimationController].
-  static LinearGradient lerp(LinearGradient a, LinearGradient b, double t) {
+  static LinearGradient? lerp(LinearGradient? a, LinearGradient? b, double t) {
     assert(t != null);
-    if (a == null && b == null)
+    if (a == null && b == null) {
       return null;
-    if (a == null)
-      return b.scale(t);
-    if (b == null)
+    }
+    if (a == null) {
+      return b!.scale(t);
+    }
+    if (b == null) {
       return a.scale(1.0 - t);
-    final _ColorsAndStops interpolated = _interpolateColorsAndStops(a.colors, a.stops, b.colors, b.stops, t);
-    return new LinearGradient(
-      begin: AlignmentGeometry.lerp(a.begin, b.begin, t),
-      end: AlignmentGeometry.lerp(a.end, b.end, t),
+    }
+    final _ColorsAndStops interpolated = _interpolateColorsAndStops(
+        a.colors,
+        a._impliedStops(),
+        b.colors,
+        b._impliedStops(),
+        t,
+    );
+    return LinearGradient(
+      begin: AlignmentGeometry.lerp(a.begin, b.begin, t)!,
+      end: AlignmentGeometry.lerp(a.end, b.end, t)!,
       colors: interpolated.colors,
       stops: interpolated.stops,
       tileMode: t < 0.5 ? a.tileMode : b.tileMode, // TODO(ianh): interpolate tile mode
@@ -392,58 +518,70 @@ class LinearGradient extends Gradient {
   }
 
   @override
-  bool operator ==(dynamic other) {
-    if (identical(this, other))
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
       return true;
-    if (runtimeType != other.runtimeType)
-      return false;
-    final LinearGradient typedOther = other;
-    if (begin != typedOther.begin ||
-        end != typedOther.end ||
-        tileMode != typedOther.tileMode ||
-        colors?.length != typedOther.colors?.length ||
-        stops?.length != typedOther.stops?.length)
-      return false;
-    if (colors != null) {
-      assert(typedOther.colors != null);
-      assert(colors.length == typedOther.colors.length);
-      for (int i = 0; i < colors.length; i += 1) {
-        if (colors[i] != typedOther.colors[i])
-          return false;
-      }
     }
-    if (stops != null) {
-      assert(typedOther.stops != null);
-      assert(stops.length == typedOther.stops.length);
-      for (int i = 0; i < stops.length; i += 1) {
-        if (stops[i] != typedOther.stops[i])
-          return false;
-      }
+    if (other.runtimeType != runtimeType) {
+      return false;
     }
-    return true;
+    return other is LinearGradient
+        && other.begin == begin
+        && other.end == end
+        && other.tileMode == tileMode
+        && other.transform == transform
+        && listEquals<Color>(other.colors, colors)
+        && listEquals<double>(other.stops, stops);
   }
 
   @override
-  int get hashCode => hashValues(begin, end, tileMode, hashList(colors), hashList(stops));
+  int get hashCode => Object.hash(
+    begin,
+    end,
+    tileMode,
+    transform,
+    Object.hashAll(colors),
+    stops == null ? null : Object.hashAll(stops!),
+  );
 
   @override
   String toString() {
-    return '$runtimeType($begin, $end, $colors, $stops, $tileMode)';
+    final List<String> description = <String>[
+      'begin: $begin',
+      'end: $end',
+      'colors: $colors',
+      if (stops != null) 'stops: $stops',
+      'tileMode: $tileMode',
+      if (transform != null) 'transform: $transform',
+    ];
+
+    return '${objectRuntimeType(this, 'LinearGradient')}(${description.join(', ')})';
   }
 }
 
 /// A 2D radial gradient.
 ///
-/// This class is used by [BoxDecoration] to represent gradients. This abstracts
-/// out the arguments to the [new ui.Gradient.radial] constructor from the
-/// `dart:ui` library.
+/// This class is used by [BoxDecoration] to represent radial gradients. This
+/// abstracts out the arguments to the [ui.Gradient.radial] constructor from
+/// the `dart:ui` library.
 ///
-/// A gradient has a [center] and a [radius]. The [center] point corresponds to
-/// 0.0, and the ring at [radius] from the center corresponds to 1.0. These
-/// lengths are expressed in fractions, so that the same gradient can be reused
-/// with varying sized boxes without changing the parameters. (This contrasts
-/// with [new ui.Gradient.radial], whose arguments are expressed in logical
-/// pixels.)
+/// A normal radial gradient has a [center] and a [radius]. The [center] point
+/// corresponds to 0.0, and the ring at [radius] from the center corresponds
+/// to 1.0. These lengths are expressed in fractions, so that the same gradient
+/// can be reused with varying sized boxes without changing the parameters.
+/// (This contrasts with [ui.Gradient.radial], whose arguments are expressed
+/// in logical pixels.)
+///
+/// It is also possible to create a two-point (or focal pointed) radial gradient
+/// (which is sometimes referred to as a two point conic gradient, but is not the
+/// same as a CSS conic gradient which corresponds to a [SweepGradient]). A [focal]
+/// point and [focalRadius] can be specified similarly to [center] and [radius],
+/// which will make the rendered gradient appear to be pointed or directed in the
+/// direction of the [focal] point. This is only important if [focal] and [center]
+/// are not equal or [focalRadius] > 0.0 (as this case is visually identical to a
+/// normal radial gradient).  One important case to avoid is having [focal] and
+/// [center] both resolve to [Offset.zero] when [focalRadius] > 0.0. In such a case,
+/// a valid shader cannot be created by the framework.
 ///
 /// The [colors] are described by a list of [Color] objects. There must be at
 /// least two colors. The [stops] list, if specified, must have the same length
@@ -457,32 +595,35 @@ class LinearGradient extends Gradient {
 /// Typically this class is used with [BoxDecoration], which does the painting.
 /// To use a [RadialGradient] to paint on a canvas directly, see [createShader].
 ///
-/// ## Sample code
+/// {@tool snippet}
 ///
 /// This function draws a gradient that looks like a sun in a blue sky.
 ///
 /// ```dart
 /// void paintSky(Canvas canvas, Rect rect) {
-///   var gradient = new RadialGradient(
-///     center: const Alignment(0.7, -0.6), // near the top right
+///   const RadialGradient gradient = RadialGradient(
+///     center: Alignment(0.7, -0.6), // near the top right
 ///     radius: 0.2,
-///     colors: [
-///       const Color(0xFFFFFF00), // yellow sun
-///       const Color(0xFF0099FF), // blue sky
+///     colors: <Color>[
+///       Color(0xFFFFFF00), // yellow sun
+///       Color(0xFF0099FF), // blue sky
 ///     ],
-///     stops: [0.4, 1.0],
+///     stops: <double>[0.4, 1.0],
 ///   );
 ///   // rect is the area we are painting over
-///   var paint = new Paint()
+///   final Paint paint = Paint()
 ///     ..shader = gradient.createShader(rect);
 ///   canvas.drawRect(rect, paint);
 /// }
 /// ```
+/// {@end-tool}
 ///
 /// See also:
 ///
 ///  * [LinearGradient], which displays a gradient in parallel lines, and has an
 ///    example which shows a different way to use [Gradient] objects.
+///  * [SweepGradient], which displays a gradient in a sweeping arc around a
+///    center point.
 ///  * [BoxDecoration], which can take a [RadialGradient] in its
 ///    [BoxDecoration.gradient] property.
 ///  * [CustomPainter], which shows how to use the above sample code in a custom
@@ -493,15 +634,18 @@ class RadialGradient extends Gradient {
   /// The [colors] argument must not be null. If [stops] is non-null, it must
   /// have the same length as [colors].
   const RadialGradient({
-    this.center: Alignment.center,
-    this.radius: 0.5,
-    @required List<Color> colors,
-    List<double> stops,
-    this.tileMode: TileMode.clamp,
+    this.center = Alignment.center,
+    this.radius = 0.5,
+    required super.colors,
+    super.stops,
+    this.tileMode = TileMode.clamp,
+    this.focal,
+    this.focalRadius = 0.0,
+    super.transform,
   }) : assert(center != null),
        assert(radius != null),
        assert(tileMode != null),
-       super(colors: colors, stops: stops);
+       assert(focalRadius != null);
 
   /// The center of the gradient, as an offset into the (-1.0, -1.0) x (1.0, 1.0)
   /// square describing the gradient which will be mapped onto the paint box.
@@ -509,11 +653,11 @@ class RadialGradient extends Gradient {
   /// For example, an alignment of (0.0, 0.0) will place the radial
   /// gradient in the center of the box.
   ///
-  /// If this is a [Alignment], then it is expressed as a vector from
+  /// If this is an [Alignment], then it is expressed as a vector from
   /// coordinate (0.0, 0.0), in a coordinate space that maps the center of the
   /// paint box at (0.0, 0.0) and the bottom right at (1.0, 1.0).
   ///
-  /// It can also be a [AlignmentDirectional], where the start is the left in
+  /// It can also be an [AlignmentDirectional], where the start is the left in
   /// left-to-right contexts and the right in right-to-left contexts. If a
   /// text-direction-dependent value is provided here, then the [createShader]
   /// method will need to be given a [TextDirection].
@@ -533,44 +677,80 @@ class RadialGradient extends Gradient {
   /// For details, see [TileMode].
   ///
   /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_clamp_radial.png)
+  /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_decal_radial.png)
   /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_mirror_radial.png)
   /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_repeated_radial.png)
+  ///
+  /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_clamp_radialWithFocal.png)
+  /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_decal_radialWithFocal.png)
+  /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_mirror_radialWithFocal.png)
+  /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_repeated_radialWithFocal.png)
   final TileMode tileMode;
 
+  /// The focal point of the gradient.  If specified, the gradient will appear
+  /// to be focused along the vector from [center] to focal.
+  ///
+  /// See [center] for a description of how the coordinates are mapped.
+  ///
+  /// If this value is specified and [focalRadius] > 0.0, care should be taken
+  /// to ensure that either this value or [center] will not both resolve to
+  /// [Offset.zero], which would fail to create a valid gradient.
+  final AlignmentGeometry? focal;
+
+  /// The radius of the focal point of gradient, as a fraction of the shortest
+  /// side of the paint box.
+  ///
+  /// For example, if a radial gradient is painted on a box that is
+  /// 100.0 pixels wide and 200.0 pixels tall, then a radius of 1.0
+  /// will place the 1.0 stop at 100.0 pixels from the [focal] point.
+  ///
+  /// If this value is specified and is greater than 0.0, either [focal] or
+  /// [center] must not resolve to [Offset.zero], which would fail to create
+  /// a valid gradient.
+  final double focalRadius;
+
   @override
-  Shader createShader(Rect rect, { TextDirection textDirection }) {
-    return new ui.Gradient.radial(
+  Shader createShader(Rect rect, { TextDirection? textDirection }) {
+    return ui.Gradient.radial(
       center.resolve(textDirection).withinRect(rect),
       radius * rect.shortestSide,
       colors, _impliedStops(), tileMode,
+      _resolveTransform(rect, textDirection),
+      focal == null  ? null : focal!.resolve(textDirection).withinRect(rect),
+      focalRadius * rect.shortestSide,
     );
   }
 
   /// Returns a new [RadialGradient] with its colors scaled by the given factor.
   ///
-  /// If the factor is 0.0 or less, then the gradient is fully transparent.
+  /// Since the alpha component of the Color is what is scaled, a factor
+  /// of 0.0 or less results in a gradient that is fully transparent.
   @override
   RadialGradient scale(double factor) {
-    return new RadialGradient(
+    return RadialGradient(
       center: center,
       radius: radius,
-      colors: colors.map<Color>((Color color) => Color.lerp(null, color, factor)).toList(),
+      colors: colors.map<Color>((Color color) => Color.lerp(null, color, factor)!).toList(),
       stops: stops,
       tileMode: tileMode,
+      focal: focal,
+      focalRadius: focalRadius,
     );
   }
 
   @override
-  Gradient lerpFrom(Gradient a, double t) {
-    if (a == null || (a is RadialGradient && a.colors.length == colors.length)) // TODO(ianh): remove limitation
-      return RadialGradient.lerp(a, this, t);
+  Gradient? lerpFrom(Gradient? a, double t) {
+    if (a == null || (a is RadialGradient)) {
+      return RadialGradient.lerp(a as RadialGradient?, this, t);
+    }
     return super.lerpFrom(a, t);
   }
 
   @override
-  Gradient lerpTo(Gradient b, double t) {
-    if (b == null || (b is RadialGradient && b.colors.length == colors.length)) // TODO(ianh): remove limitation
-      return RadialGradient.lerp(this, b, t);
+  Gradient? lerpTo(Gradient? b, double t) {
+    if (b == null || (b is RadialGradient)) {
+      return RadialGradient.lerp(this, b as RadialGradient?, t);
+    }
     return super.lerpTo(b, t);
   }
 
@@ -582,7 +762,7 @@ class RadialGradient extends Gradient {
   ///
   /// If neither gradient is null, they must have the same number of [colors].
   ///
-  /// The `t` argument represents position on the timeline, with 0.0 meaning
+  /// The `t` argument represents a position on the timeline, with 0.0 meaning
   /// that the interpolation has not started, returning `a` (or something
   /// equivalent to `a`), 1.0 meaning that the interpolation has finished,
   /// returning `b` (or something equivalent to `b`), and values in between
@@ -593,18 +773,299 @@ class RadialGradient extends Gradient {
   ///
   /// Values for `t` are usually obtained from an [Animation<double>], such as
   /// an [AnimationController].
-  static RadialGradient lerp(RadialGradient a, RadialGradient b, double t) {
+  static RadialGradient? lerp(RadialGradient? a, RadialGradient? b, double t) {
     assert(t != null);
-    if (a == null && b == null)
+    if (a == null && b == null) {
       return null;
-    if (a == null)
-      return b.scale(t);
-    if (b == null)
+    }
+    if (a == null) {
+      return b!.scale(t);
+    }
+    if (b == null) {
       return a.scale(1.0 - t);
-    final _ColorsAndStops interpolated = _interpolateColorsAndStops(a.colors, a.stops, b.colors, b.stops, t);
-    return new RadialGradient(
-      center: AlignmentGeometry.lerp(a.center, b.center, t),
-      radius: math.max(0.0, ui.lerpDouble(a.radius, b.radius, t)),
+    }
+    final _ColorsAndStops interpolated = _interpolateColorsAndStops(
+        a.colors,
+        a._impliedStops(),
+        b.colors,
+        b._impliedStops(),
+        t,
+    );
+    return RadialGradient(
+      center: AlignmentGeometry.lerp(a.center, b.center, t)!,
+      radius: math.max(0.0, ui.lerpDouble(a.radius, b.radius, t)!),
+      colors: interpolated.colors,
+      stops: interpolated.stops,
+      tileMode: t < 0.5 ? a.tileMode : b.tileMode, // TODO(ianh): interpolate tile mode
+      focal: AlignmentGeometry.lerp(a.focal, b.focal, t),
+      focalRadius: math.max(0.0, ui.lerpDouble(a.focalRadius, b.focalRadius, t)!),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    if (other.runtimeType != runtimeType) {
+      return false;
+    }
+    return other is RadialGradient
+        && other.center == center
+        && other.radius == radius
+        && other.tileMode == tileMode
+        && other.transform == transform
+        && listEquals<Color>(other.colors, colors)
+        && listEquals<double>(other.stops, stops)
+        && other.focal == focal
+        && other.focalRadius == focalRadius;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    center,
+    radius,
+    tileMode,
+    transform,
+    Object.hashAll(colors),
+    stops == null ? null : Object.hashAll(stops!),
+    focal,
+    focalRadius,
+  );
+
+  @override
+  String toString() {
+    final List<String> description = <String>[
+      'center: $center',
+      'radius: ${debugFormatDouble(radius)}',
+      'colors: $colors',
+      if (stops != null) 'stops: $stops',
+      'tileMode: $tileMode',
+      if (focal != null) 'focal: $focal',
+      'focalRadius: ${debugFormatDouble(focalRadius)}',
+      if (transform != null) 'transform: $transform',
+    ];
+
+    return '${objectRuntimeType(this, 'RadialGradient')}(${description.join(', ')})';
+  }
+}
+
+/// A 2D sweep gradient.
+///
+/// This class is used by [BoxDecoration] to represent sweep gradients. This
+/// abstracts out the arguments to the [ui.Gradient.sweep] constructor from
+/// the `dart:ui` library.
+///
+/// A gradient has a [center], a [startAngle], and an [endAngle]. The [startAngle]
+/// corresponds to 0.0, and the [endAngle] corresponds to 1.0. These angles are
+/// expressed in radians.
+///
+/// The [colors] are described by a list of [Color] objects. There must be at
+/// least two colors. The [stops] list, if specified, must have the same length
+/// as [colors]. It specifies fractions of the vector from start to end, between
+/// 0.0 and 1.0, for each color. If it is null, a uniform distribution is
+/// assumed.
+///
+/// The region of the canvas before [startAngle] and after [endAngle] is colored
+/// according to [tileMode].
+///
+/// Typically this class is used with [BoxDecoration], which does the painting.
+/// To use a [SweepGradient] to paint on a canvas directly, see [createShader].
+///
+/// {@tool snippet}
+///
+/// This sample draws a different color in each quadrant.
+///
+/// ```dart
+/// Container(
+///   decoration: const BoxDecoration(
+///     gradient: SweepGradient(
+///       center: FractionalOffset.center,
+///       colors: <Color>[
+///         Color(0xFF4285F4), // blue
+///         Color(0xFF34A853), // green
+///         Color(0xFFFBBC05), // yellow
+///         Color(0xFFEA4335), // red
+///         Color(0xFF4285F4), // blue again to seamlessly transition to the start
+///       ],
+///       stops: <double>[0.0, 0.25, 0.5, 0.75, 1.0],
+///     ),
+///   )
+/// )
+/// ```
+/// {@end-tool}
+///
+/// {@tool snippet}
+///
+/// This sample takes the above gradient and rotates it by `math.pi/4` radians,
+/// i.e. 45 degrees.
+///
+/// ```dart
+/// Container(
+///   decoration: const BoxDecoration(
+///     gradient: SweepGradient(
+///       center: FractionalOffset.center,
+///       colors: <Color>[
+///         Color(0xFF4285F4), // blue
+///         Color(0xFF34A853), // green
+///         Color(0xFFFBBC05), // yellow
+///         Color(0xFFEA4335), // red
+///         Color(0xFF4285F4), // blue again to seamlessly transition to the start
+///       ],
+///       stops: <double>[0.0, 0.25, 0.5, 0.75, 1.0],
+///       transform: GradientRotation(math.pi/4),
+///     ),
+///   ),
+/// )
+/// ```
+/// {@end-tool}
+///
+/// See also:
+///
+///  * [LinearGradient], which displays a gradient in parallel lines, and has an
+///    example which shows a different way to use [Gradient] objects.
+///  * [RadialGradient], which displays a gradient in concentric circles, and
+///    has an example which shows a different way to use [Gradient] objects.
+///  * [BoxDecoration], which can take a [SweepGradient] in its
+///    [BoxDecoration.gradient] property.
+class SweepGradient extends Gradient {
+  /// Creates a sweep gradient.
+  ///
+  /// The [colors] argument must not be null. If [stops] is non-null, it must
+  /// have the same length as [colors].
+  const SweepGradient({
+    this.center = Alignment.center,
+    this.startAngle = 0.0,
+    this.endAngle = math.pi * 2,
+    required super.colors,
+    super.stops,
+    this.tileMode = TileMode.clamp,
+    super.transform,
+  }) : assert(center != null),
+       assert(startAngle != null),
+       assert(endAngle != null),
+       assert(tileMode != null);
+
+  /// The center of the gradient, as an offset into the (-1.0, -1.0) x (1.0, 1.0)
+  /// square describing the gradient which will be mapped onto the paint box.
+  ///
+  /// For example, an alignment of (0.0, 0.0) will place the sweep
+  /// gradient in the center of the box.
+  ///
+  /// If this is an [Alignment], then it is expressed as a vector from
+  /// coordinate (0.0, 0.0), in a coordinate space that maps the center of the
+  /// paint box at (0.0, 0.0) and the bottom right at (1.0, 1.0).
+  ///
+  /// It can also be an [AlignmentDirectional], where the start is the left in
+  /// left-to-right contexts and the right in right-to-left contexts. If a
+  /// text-direction-dependent value is provided here, then the [createShader]
+  /// method will need to be given a [TextDirection].
+  final AlignmentGeometry center;
+
+  /// The angle in radians at which stop 0.0 of the gradient is placed.
+  ///
+  /// Defaults to 0.0.
+  final double startAngle;
+
+  /// The angle in radians at which stop 1.0 of the gradient is placed.
+  ///
+  /// Defaults to math.pi * 2.
+  final double endAngle;
+
+  /// How this gradient should tile the plane beyond in the region before
+  /// [startAngle] and after [endAngle].
+  ///
+  /// For details, see [TileMode].
+  ///
+  /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_clamp_sweep.png)
+  /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_decal_sweep.png)
+  /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_mirror_sweep.png)
+  /// ![](https://flutter.github.io/assets-for-api-docs/assets/dart-ui/tile_mode_repeated_sweep.png)
+  final TileMode tileMode;
+
+  @override
+  Shader createShader(Rect rect, { TextDirection? textDirection }) {
+    return ui.Gradient.sweep(
+      center.resolve(textDirection).withinRect(rect),
+      colors, _impliedStops(), tileMode,
+      startAngle,
+      endAngle,
+      _resolveTransform(rect, textDirection),
+    );
+  }
+
+  /// Returns a new [SweepGradient] with its colors scaled by the given factor.
+  ///
+  /// Since the alpha component of the Color is what is scaled, a factor
+  /// of 0.0 or less results in a gradient that is fully transparent.
+  @override
+  SweepGradient scale(double factor) {
+    return SweepGradient(
+      center: center,
+      startAngle: startAngle,
+      endAngle: endAngle,
+      colors: colors.map<Color>((Color color) => Color.lerp(null, color, factor)!).toList(),
+      stops: stops,
+      tileMode: tileMode,
+    );
+  }
+
+  @override
+  Gradient? lerpFrom(Gradient? a, double t) {
+    if (a == null || (a is SweepGradient)) {
+      return SweepGradient.lerp(a as SweepGradient?, this, t);
+    }
+    return super.lerpFrom(a, t);
+  }
+
+  @override
+  Gradient? lerpTo(Gradient? b, double t) {
+    if (b == null || (b is SweepGradient)) {
+      return SweepGradient.lerp(this, b as SweepGradient?, t);
+    }
+    return super.lerpTo(b, t);
+  }
+
+  /// Linearly interpolate between two [SweepGradient]s.
+  ///
+  /// If either gradient is null, then the non-null gradient is returned with
+  /// its color scaled in the same way as the [scale] function.
+  ///
+  /// If neither gradient is null, they must have the same number of [colors].
+  ///
+  /// The `t` argument represents a position on the timeline, with 0.0 meaning
+  /// that the interpolation has not started, returning `a` (or something
+  /// equivalent to `a`), 1.0 meaning that the interpolation has finished,
+  /// returning `b` (or something equivalent to `b`), and values in between
+  /// meaning that the interpolation is at the relevant point on the timeline
+  /// between `a` and `b`. The interpolation can be extrapolated beyond 0.0 and
+  /// 1.0, so negative values and values greater than 1.0 are valid (and can
+  /// easily be generated by curves such as [Curves.elasticInOut]).
+  ///
+  /// Values for `t` are usually obtained from an [Animation<double>], such as
+  /// an [AnimationController].
+  static SweepGradient? lerp(SweepGradient? a, SweepGradient? b, double t) {
+    assert(t != null);
+    if (a == null && b == null) {
+      return null;
+    }
+    if (a == null) {
+      return b!.scale(t);
+    }
+    if (b == null) {
+      return a.scale(1.0 - t);
+    }
+    final _ColorsAndStops interpolated = _interpolateColorsAndStops(
+        a.colors,
+        a._impliedStops(),
+        b.colors,
+        b._impliedStops(),
+        t,
+    );
+    return SweepGradient(
+      center: AlignmentGeometry.lerp(a.center, b.center, t)!,
+      startAngle: math.max(0.0, ui.lerpDouble(a.startAngle, b.startAngle, t)!),
+      endAngle: math.max(0.0, ui.lerpDouble(a.endAngle, b.endAngle, t)!),
       colors: interpolated.colors,
       stops: interpolated.stops,
       tileMode: t < 0.5 ? a.tileMode : b.tileMode, // TODO(ianh): interpolate tile mode
@@ -612,42 +1073,46 @@ class RadialGradient extends Gradient {
   }
 
   @override
-  bool operator ==(dynamic other) {
-    if (identical(this, other))
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
       return true;
-    if (runtimeType != other.runtimeType)
-      return false;
-    final RadialGradient typedOther = other;
-    if (center != typedOther.center ||
-        radius != typedOther.radius ||
-        tileMode != typedOther.tileMode ||
-        colors?.length != typedOther.colors?.length ||
-        stops?.length != typedOther.stops?.length)
-      return false;
-    if (colors != null) {
-      assert(typedOther.colors != null);
-      assert(colors.length == typedOther.colors.length);
-      for (int i = 0; i < colors.length; i += 1) {
-        if (colors[i] != typedOther.colors[i])
-          return false;
-      }
     }
-    if (stops != null) {
-      assert(typedOther.stops != null);
-      assert(stops.length == typedOther.stops.length);
-      for (int i = 0; i < stops.length; i += 1) {
-        if (stops[i] != typedOther.stops[i])
-          return false;
-      }
+    if (other.runtimeType != runtimeType) {
+      return false;
     }
-    return true;
+    return other is SweepGradient
+        && other.center == center
+        && other.startAngle == startAngle
+        && other.endAngle == endAngle
+        && other.tileMode == tileMode
+        && other.transform == transform
+        && listEquals<Color>(other.colors, colors)
+        && listEquals<double>(other.stops, stops);
   }
 
   @override
-  int get hashCode => hashValues(center, radius, tileMode, hashList(colors), hashList(stops));
+  int get hashCode => Object.hash(
+    center,
+    startAngle,
+    endAngle,
+    tileMode,
+    transform,
+    Object.hashAll(colors),
+    stops == null ? null : Object.hashAll(stops!),
+  );
 
   @override
   String toString() {
-    return '$runtimeType($center, $radius, $colors, $stops, $tileMode)';
+    final List<String> description = <String>[
+      'center: $center',
+      'startAngle: ${debugFormatDouble(startAngle)}',
+      'endAngle: ${debugFormatDouble(endAngle)}',
+      'colors: $colors',
+      if (stops != null) 'stops: $stops',
+      'tileMode: $tileMode',
+      if (transform != null) 'transform: $transform',
+    ];
+
+    return '${objectRuntimeType(this, 'SweepGradient')}(${description.join(', ')})';
   }
 }

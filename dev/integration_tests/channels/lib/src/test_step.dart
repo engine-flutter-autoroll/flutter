@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@ import 'pair.dart';
 
 enum TestStatus { ok, pending, failed, complete }
 
-typedef Future<TestStepResult> TestStep();
+typedef TestStep = Future<TestStepResult> Function();
 
 const String nothing = '-';
 
@@ -25,13 +25,6 @@ const String nothing = '-';
 /// - The Flutter app records the incoming reply echo.
 /// - The platform finally replies to the original message with another echo.
 class TestStepResult {
-  static const TextStyle bold = const TextStyle(fontWeight: FontWeight.bold);
-  static const TestStepResult complete = const TestStepResult(
-    'Test complete',
-    nothing,
-    TestStatus.complete,
-  );
-
   const TestStepResult(
     this.name,
     this.description,
@@ -51,13 +44,10 @@ class TestStepResult {
         return const TestStepResult('Executing', nothing, TestStatus.pending);
       case ConnectionState.done:
         if (snapshot.hasData) {
-          return snapshot.data;
-        } else {
-          final TestStepResult result = snapshot.error;
-          return result;
+          return snapshot.data!;
         }
-        break;
-      default:
+        return snapshot.error! as TestStepResult;
+      case ConnectionState.active:
         throw 'Unsupported state ${snapshot.connectionState}';
     }
   }
@@ -71,22 +61,29 @@ class TestStepResult {
   final dynamic replyEcho;
   final dynamic error;
 
+  static const TextStyle bold = TextStyle(fontWeight: FontWeight.bold);
+  static const TestStepResult complete = TestStepResult(
+    'Test complete',
+    nothing,
+    TestStatus.complete,
+  );
+
   Widget asWidget(BuildContext context) {
-    return new Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        new Text('Step: $name', style: bold),
-        new Text(description),
+        Text('Step: $name', style: bold),
+        Text(description),
         const Text(' '),
-        new Text('Msg sent: ${_toString(messageSent)}'),
-        new Text('Msg rvcd: ${_toString(messageReceived)}'),
-        new Text('Reply echo: ${_toString(replyEcho)}'),
-        new Text('Msg echo: ${_toString(messageEcho)}'),
-        new Text('Error: ${_toString(error)}'),
+        Text('Msg sent: ${_toString(messageSent)}'),
+        Text('Msg rvcd: ${_toString(messageReceived)}'),
+        Text('Reply echo: ${_toString(replyEcho)}'),
+        Text('Msg echo: ${_toString(messageEcho)}'),
+        Text('Error: ${_toString(error)}'),
         const Text(' '),
-        new Text(
+        Text(
           status.toString().substring('TestStatus.'.length),
-          key: new ValueKey<String>(
+          key: ValueKey<String>(
               status == TestStatus.pending ? 'nostatus' : 'status'),
           style: bold,
         ),
@@ -104,8 +101,9 @@ Future<TestStepResult> resultOfHandshake(
   dynamic error,
 ) async {
   assert(message != nothing);
-  while (received.length < 2)
+  while (received.length < 2) {
     received.add(nothing);
+  }
   TestStatus status;
   if (!_deepEquals(messageEcho, message) ||
       received.length != 2 ||
@@ -117,7 +115,7 @@ Future<TestStepResult> resultOfHandshake(
   } else {
     status = TestStatus.ok;
   }
-  return new TestStepResult(
+  return TestStepResult(
     name,
     description,
     status,
@@ -130,27 +128,34 @@ Future<TestStepResult> resultOfHandshake(
 }
 
 String _toString(dynamic message) {
-  if (message is ByteData)
+  if (message is ByteData) {
     return message.buffer
         .asUint8List(message.offsetInBytes, message.lengthInBytes)
         .toString();
-  else
+  } else {
     return '$message';
+  }
 }
 
 bool _deepEquals(dynamic a, dynamic b) {
-  if (a == b)
+  if (a == b) {
     return true;
-  if (a is double && a.isNaN)
+  }
+  if (a is double && a.isNaN) {
     return b is double && b.isNaN;
-  if (a is ByteData)
+  }
+  if (a is ByteData) {
     return b is ByteData && _deepEqualsByteData(a, b);
-  if (a is List)
+  }
+  if (a is List) {
     return b is List && _deepEqualsList(a, b);
-  if (a is Map)
+  }
+  if (a is Map) {
     return b is Map && _deepEqualsMap(a, b);
-  if (a is Pair)
+  }
+  if (a is Pair) {
     return b is Pair && _deepEqualsPair(a, b);
+  }
   return false;
 }
 
@@ -162,21 +167,25 @@ bool _deepEqualsByteData(ByteData a, ByteData b) {
 }
 
 bool _deepEqualsList(List<dynamic> a, List<dynamic> b) {
-  if (a.length != b.length)
+  if (a.length != b.length) {
     return false;
+  }
   for (int i = 0; i < a.length; i++) {
-    if (!_deepEquals(a[i], b[i]))
+    if (!_deepEquals(a[i], b[i])) {
       return false;
+    }
   }
   return true;
 }
 
 bool _deepEqualsMap(Map<dynamic, dynamic> a, Map<dynamic, dynamic> b) {
-  if (a.length != b.length)
+  if (a.length != b.length) {
     return false;
-  for (dynamic key in a.keys) {
-    if (!b.containsKey(key) || !_deepEquals(a[key], b[key]))
+  }
+  for (final dynamic key in a.keys) {
+    if (!b.containsKey(key) || !_deepEquals(a[key], b[key])) {
       return false;
+    }
   }
   return true;
 }

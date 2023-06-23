@@ -1,8 +1,6 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -31,7 +29,7 @@ class GlobalWidgetsLocalizations implements WidgetsLocalizations {
   }
 
   // See http://en.wikipedia.org/wiki/Right-to-left
-  static const List<String> _rtlLanguages = const <String>[
+  static const List<String> _rtlLanguages = <String>[
     'ar', // Arabic
     'fa', // Farsi
     'he', // Hebrew
@@ -45,7 +43,7 @@ class GlobalWidgetsLocalizations implements WidgetsLocalizations {
 
   @override
   TextDirection get textDirection => _textDirection;
-  TextDirection _textDirection;
+  late TextDirection _textDirection;
 
   /// Creates an object that provides localized resource values for the
   /// lowest levels of the Flutter framework.
@@ -53,14 +51,14 @@ class GlobalWidgetsLocalizations implements WidgetsLocalizations {
   /// This method is typically used to create a [LocalizationsDelegate].
   /// The [WidgetsApp] does so by default.
   static Future<WidgetsLocalizations> load(Locale locale) {
-    return new SynchronousFuture<WidgetsLocalizations>(new GlobalWidgetsLocalizations(locale));
+    return SynchronousFuture<WidgetsLocalizations>(GlobalWidgetsLocalizations(locale));
   }
 
   /// A [LocalizationsDelegate] that uses [GlobalWidgetsLocalizations.load]
   /// to create an instance of this class.
   ///
-  /// [WidgetsApp] automatically adds this value to [WidgetApp.localizationsDelegates].
-  static const LocalizationsDelegate<WidgetsLocalizations> delegate = const _WidgetsLocalizationsDelegate();
+  /// [WidgetsApp] automatically adds this value to [WidgetsApp.localizationsDelegates].
+  static const LocalizationsDelegate<WidgetsLocalizations> delegate = _WidgetsLocalizationsDelegate();
 }
 
 class _WidgetsLocalizationsDelegate extends LocalizationsDelegate<WidgetsLocalizations> {
@@ -74,4 +72,7 @@ class _WidgetsLocalizationsDelegate extends LocalizationsDelegate<WidgetsLocaliz
 
   @override
   bool shouldReload(_WidgetsLocalizationsDelegate old) => false;
+
+  @override
+  String toString() => 'GlobalWidgetsLocalizations.delegate(all locales)';
 }

@@ -1,16 +1,15 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart';
+import 'object.dart';
 
 export 'package:flutter/foundation.dart' show debugPrint;
 
 // Any changes to this file should be reflected in the debugAssertAllRenderVarsUnset()
 // function below.
 
-const HSVColor _kDebugDefaultRepaintColor = const HSVColor.fromAHSV(0.4, 60.0, 1.0, 1.0);
+const HSVColor _kDebugDefaultRepaintColor = HSVColor.fromAHSV(0.4, 60.0, 1.0, 1.0);
 
 /// Causes each RenderBox to paint a box around its bounds, and some extra
 /// boxes, such as [RenderPadding], to draw construction lines.
@@ -37,10 +36,15 @@ bool debugPaintLayerBordersEnabled = false;
 /// [RenderBox.debugHandleEvent].
 bool debugPaintPointersEnabled = false;
 
-/// Overlay a rotating set of colors when repainting layers in checked mode.
+/// Overlay a rotating set of colors when repainting layers in debug mode.
+///
+/// See also:
+///
+///  * [RepaintBoundary], which can be used to contain repaints when unchanged
+///    areas are being excessively repainted.
 bool debugRepaintRainbowEnabled = false;
 
-/// Overlay a rotating set of colors when repainting text in checked mode.
+/// Overlay a rotating set of colors when repainting text in debug mode.
 bool debugRepaintTextRainbowEnabled = false;
 
 /// The current color to overlay when repainting a layer.
@@ -74,42 +78,137 @@ bool debugPrintMarkNeedsPaintStacks = false;
 ///
 /// See also:
 ///
-///  * [debugProfilePaintsEnabled], which does something similar for
-///    painting but using the timeline view.
-///
+///  * [debugProfileLayoutsEnabled], which does something similar for layout
+///    but using the timeline view.
+///  * [debugProfilePaintsEnabled], which does something similar for painting
+///    but using the timeline view.
 ///  * [debugPrintRebuildDirtyWidgets], which does something similar for widgets
 ///    being rebuilt.
-///
 ///  * The discussion at [RendererBinding.drawFrame].
 bool debugPrintLayouts = false;
 
 /// Check the intrinsic sizes of each [RenderBox] during layout.
 ///
-/// By default this is turned off since these checks are expensive, but it is
-/// enabled by the test framework.
+/// By default this is turned off since these checks are expensive. If you are
+/// implementing your own children of [RenderBox] with custom intrinsics, turn
+/// this on in your unit tests for additional validations.
 bool debugCheckIntrinsicSizes = false;
 
-/// Adds [dart:developer.Timeline] events for every [RenderObject] painted.
+/// Adds [dart:developer.Timeline] events for every [RenderObject] layout.
 ///
-/// This is only enabled in debug builds. The timing information this exposes is
-/// not representative of actual paints. However, it can expose unexpected
-/// painting in the timeline.
+/// The timing information this flag exposes is not representative of the actual
+/// cost of layout, because the overhead of adding timeline events is
+/// significant relative to the time each object takes to lay out. However, it
+/// can expose unexpected layout behavior in the timeline.
 ///
-/// For details on how to use [dart:developer.Timeline] events in the Dart
-/// Observatory to optimize your app, see:
-/// <https://fuchsia.googlesource.com/sysui/+/master/docs/performance.md>
+/// In debug builds, additional information is included in the trace (such as
+/// the properties of render objects being laid out). Collecting this data is
+/// expensive and further makes these traces non-representative of actual
+/// performance. This data is omitted in profile builds.
+///
+/// For more information about performance debugging in Flutter, see
+/// <https://flutter.dev/docs/perf/rendering>.
 ///
 /// See also:
 ///
 ///  * [debugPrintLayouts], which does something similar for layout but using
 ///    console output.
+///  * [debugProfileBuildsEnabled], which does something similar for widgets
+///    being rebuilt.
+///  * [debugProfilePaintsEnabled], which does something similar for painting.
+///  * [debugEnhanceLayoutTimelineArguments], which enhances the trace with
+///    debugging information related to [RenderObject] layouts.
+bool debugProfileLayoutsEnabled = false;
+
+/// Adds [dart:developer.Timeline] events for every [RenderObject] painted.
+///
+/// The timing information this flag exposes is not representative of actual
+/// paints, because the overhead of adding timeline events is significant
+/// relative to the time each object takes to paint. However, it can expose
+/// unexpected painting in the timeline.
+///
+/// In debug builds, additional information is included in the trace (such as
+/// the properties of render objects being painted). Collecting this data is
+/// expensive and further makes these traces non-representative of actual
+/// performance. This data is omitted in profile builds.
+///
+/// For more information about performance debugging in Flutter, see
+/// <https://flutter.dev/docs/perf/rendering>.
+///
+/// See also:
 ///
 ///  * [debugProfileBuildsEnabled], which does something similar for widgets
 ///    being rebuilt, and [debugPrintRebuildDirtyWidgets], its console
 ///    equivalent.
-///
+///  * [debugProfileLayoutsEnabled], which does something similar for layout,
+///    and [debugPrintLayouts], its console equivalent.
 ///  * The discussion at [RendererBinding.drawFrame].
+///  * [RepaintBoundary], which can be used to contain repaints when unchanged
+///    areas are being excessively repainted.
+///  * [debugEnhancePaintTimelineArguments], which enhances the trace with
+///    debugging information related to [RenderObject] paints.
 bool debugProfilePaintsEnabled = false;
+
+/// Adds debugging information to [Timeline] events related to [RenderObject]
+/// layouts.
+///
+/// This flag will only add [Timeline] event arguments for debug builds.
+/// Additional arguments will be added for the "LAYOUT" timeline event and for
+/// all [RenderObject] layout [Timeline] events, which are the events that are
+/// added when [debugProfileLayoutsEnabled] is true. The debugging information
+/// that will be added in trace arguments includes stats around [RenderObject]
+/// dirty states and [RenderObject] diagnostic information (i.e. [RenderObject]
+/// properties).
+///
+/// See also:
+///
+///  * [debugProfileLayoutsEnabled], which adds [Timeline] events for every
+///    [RenderObject] layout.
+///  * [debugEnhancePaintTimelineArguments], which does something similar for
+///    events related to [RenderObject] paints.
+///  * [debugEnhanceBuildTimelineArguments], which does something similar for
+///    events related to [Widget] builds.
+bool debugEnhanceLayoutTimelineArguments = false;
+
+/// Adds debugging information to [Timeline] events related to [RenderObject]
+/// paints.
+///
+/// This flag will only add [Timeline] event arguments for debug builds.
+/// Additional arguments will be added for the "PAINT" timeline event and for
+/// all [RenderObject] paint [Timeline] events, which are the [Timeline] events
+/// that are added when [debugProfilePaintsEnabled] is true. The debugging
+/// information that will be added in trace arguments includes stats around
+/// [RenderObject] dirty states and [RenderObject] diagnostic information
+/// (i.e. [RenderObject] properties).
+///
+/// See also:
+///
+///  * [debugProfilePaintsEnabled], which adds [Timeline] events for every
+///    [RenderObject] paint.
+///  * [debugEnhanceLayoutTimelineArguments], which does something similar for
+///    events related to [RenderObject] layouts.
+///  * [debugEnhanceBuildTimelineArguments], which does something similar for
+///    events related to [Widget] builds.
+bool debugEnhancePaintTimelineArguments = false;
+
+/// Signature for [debugOnProfilePaint] implementations.
+typedef ProfilePaintCallback = void Function(RenderObject renderObject);
+
+/// Callback invoked for every [RenderObject] painted each frame.
+///
+/// This callback is only invoked in debug builds.
+///
+/// See also:
+///
+///  * [debugProfilePaintsEnabled], which does something similar but adds
+///    [dart:developer.Timeline] events instead of invoking a callback.
+///  * [debugOnRebuildDirtyWidget], which does something similar for widgets
+///    being built.
+///  * [WidgetInspectorService], which uses the [debugOnProfilePaint]
+///    callback to generate aggregate profile statistics describing what paints
+///    occurred when the `ext.flutter.inspector.trackRepaintWidgets` service
+///    extension is enabled.
+ProfilePaintCallback? debugOnProfilePaint;
 
 /// Setting to true will cause all clipping effects from the layer tree to be
 /// ignored.
@@ -149,11 +248,11 @@ bool debugDisablePhysicalShapeLayers = false;
 bool debugDisableOpacityLayers = false;
 
 void _debugDrawDoubleRect(Canvas canvas, Rect outerRect, Rect innerRect, Color color) {
-  final Path path = new Path()
+  final Path path = Path()
     ..fillType = PathFillType.evenOdd
     ..addRect(outerRect)
     ..addRect(innerRect);
-  final Paint paint = new Paint()
+  final Paint paint = Paint()
     ..color = color;
   canvas.drawPath(path, paint);
 }
@@ -162,13 +261,13 @@ void _debugDrawDoubleRect(Canvas canvas, Rect outerRect, Rect innerRect, Color c
 ///
 /// Called by [RenderPadding.debugPaintSize] when [debugPaintSizeEnabled] is
 /// true.
-void debugPaintPadding(Canvas canvas, Rect outerRect, Rect innerRect, { double outlineWidth: 2.0 }) {
+void debugPaintPadding(Canvas canvas, Rect outerRect, Rect? innerRect, { double outlineWidth = 2.0 }) {
   assert(() {
     if (innerRect != null && !innerRect.isEmpty) {
       _debugDrawDoubleRect(canvas, outerRect, innerRect, const Color(0x900090FF));
       _debugDrawDoubleRect(canvas, innerRect.inflate(outlineWidth).intersect(outerRect), innerRect, const Color(0xFF0090FF));
     } else {
-      final Paint paint = new Paint()
+      final Paint paint = Paint()
         ..color = const Color(0x90909090);
       canvas.drawRect(outerRect, paint);
     }
@@ -181,13 +280,13 @@ void debugPaintPadding(Canvas canvas, Rect outerRect, Rect innerRect, { double o
 /// This function is used by the test framework to ensure that debug variables
 /// haven't been inadvertently changed.
 ///
-/// See <https://docs.flutter.io/flutter/rendering/rendering-library.html> for
-/// a complete list.
+/// See [the rendering library](rendering/rendering-library.html) for a complete
+/// list.
 ///
 /// The `debugCheckIntrinsicSizesOverride` argument can be provided to override
 /// the expected value for [debugCheckIntrinsicSizes]. (This exists because the
 /// test framework itself overrides this value in some cases.)
-bool debugAssertAllRenderVarsUnset(String reason, { bool debugCheckIntrinsicSizesOverride: false }) {
+bool debugAssertAllRenderVarsUnset(String reason, { bool debugCheckIntrinsicSizesOverride = false }) {
   assert(() {
     if (debugPaintSizeEnabled ||
         debugPaintBaselinesEnabled ||
@@ -200,8 +299,13 @@ bool debugAssertAllRenderVarsUnset(String reason, { bool debugCheckIntrinsicSize
         debugPrintMarkNeedsPaintStacks ||
         debugPrintLayouts ||
         debugCheckIntrinsicSizes != debugCheckIntrinsicSizesOverride ||
-        debugProfilePaintsEnabled) {
-      throw new FlutterError(reason);
+        debugProfileLayoutsEnabled ||
+        debugProfilePaintsEnabled ||
+        debugOnProfilePaint != null ||
+        debugDisableClipLayers ||
+        debugDisablePhysicalShapeLayers ||
+        debugDisableOpacityLayers) {
+      throw FlutterError(reason);
     }
     return true;
   }());

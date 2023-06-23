@@ -1,28 +1,27 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter/widgets.dart';
 
 void main() {
   testWidgets('AnimatedCrossFade test', (WidgetTester tester) async {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const AnimatedCrossFade(
-            firstChild: const SizedBox(
+        child: Center(
+          child: AnimatedCrossFade(
+            firstChild: SizedBox(
               width: 100.0,
               height: 100.0,
             ),
-            secondChild: const SizedBox(
+            secondChild: SizedBox(
               width: 200.0,
               height: 200.0,
             ),
-            duration: const Duration(milliseconds: 200),
+            duration: Duration(milliseconds: 200),
             crossFadeState: CrossFadeState.showFirst,
           ),
         ),
@@ -37,17 +36,17 @@ void main() {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const AnimatedCrossFade(
-            firstChild: const SizedBox(
+        child: Center(
+          child: AnimatedCrossFade(
+            firstChild: SizedBox(
               width: 100.0,
               height: 100.0,
             ),
-            secondChild: const SizedBox(
+            secondChild: SizedBox(
               width: 200.0,
               height: 200.0,
             ),
-            duration: const Duration(milliseconds: 200),
+            duration: Duration(milliseconds: 200),
             crossFadeState: CrossFadeState.showSecond,
           ),
         ),
@@ -66,17 +65,17 @@ void main() {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const Center(
-          child: const AnimatedCrossFade(
-            firstChild: const SizedBox(
+        child: Center(
+          child: AnimatedCrossFade(
+            firstChild: SizedBox(
               width: 100.0,
               height: 100.0,
             ),
-            secondChild: const SizedBox(
+            secondChild: SizedBox(
               width: 200.0,
               height: 200.0,
             ),
-            duration: const Duration(milliseconds: 200),
+            duration: Duration(milliseconds: 200),
             crossFadeState: CrossFadeState.showSecond,
           ),
         ),
@@ -90,21 +89,21 @@ void main() {
   });
 
   testWidgets('AnimatedCrossFade alignment (VISUAL)', (WidgetTester tester) async {
-    final Key firstKey = new UniqueKey();
-    final Key secondKey = new UniqueKey();
+    final Key firstKey = UniqueKey();
+    final Key secondKey = UniqueKey();
 
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
-        child: new Center(
-          child: new AnimatedCrossFade(
+        child: Center(
+          child: AnimatedCrossFade(
             alignment: Alignment.bottomRight,
-            firstChild: new SizedBox(
+            firstChild: SizedBox(
               key: firstKey,
               width: 100.0,
               height: 100.0,
             ),
-            secondChild: new SizedBox(
+            secondChild: SizedBox(
               key: secondKey,
               width: 200.0,
               height: 200.0,
@@ -117,17 +116,17 @@ void main() {
     );
 
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
-        child: new Center(
-          child: new AnimatedCrossFade(
+        child: Center(
+          child: AnimatedCrossFade(
             alignment: Alignment.bottomRight,
-            firstChild: new SizedBox(
+            firstChild: SizedBox(
               key: firstKey,
               width: 100.0,
               height: 100.0,
             ),
-            secondChild: new SizedBox(
+            secondChild: SizedBox(
               key: secondKey,
               width: 200.0,
               height: 200.0,
@@ -148,21 +147,21 @@ void main() {
   });
 
   testWidgets('AnimatedCrossFade alignment (LTR)', (WidgetTester tester) async {
-    final Key firstKey = new UniqueKey();
-    final Key secondKey = new UniqueKey();
+    final Key firstKey = UniqueKey();
+    final Key secondKey = UniqueKey();
 
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
-        child: new Center(
-          child: new AnimatedCrossFade(
+        child: Center(
+          child: AnimatedCrossFade(
             alignment: AlignmentDirectional.bottomEnd,
-            firstChild: new SizedBox(
+            firstChild: SizedBox(
               key: firstKey,
               width: 100.0,
               height: 100.0,
             ),
-            secondChild: new SizedBox(
+            secondChild: SizedBox(
               key: secondKey,
               width: 200.0,
               height: 200.0,
@@ -175,17 +174,17 @@ void main() {
     );
 
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
-        child: new Center(
-          child: new AnimatedCrossFade(
+        child: Center(
+          child: AnimatedCrossFade(
             alignment: AlignmentDirectional.bottomEnd,
-            firstChild: new SizedBox(
+            firstChild: SizedBox(
               key: firstKey,
               width: 100.0,
               height: 100.0,
             ),
-            secondChild: new SizedBox(
+            secondChild: SizedBox(
               key: secondKey,
               width: 200.0,
               height: 200.0,
@@ -206,21 +205,21 @@ void main() {
   });
 
   testWidgets('AnimatedCrossFade alignment (RTL)', (WidgetTester tester) async {
-    final Key firstKey = new UniqueKey();
-    final Key secondKey = new UniqueKey();
+    final Key firstKey = UniqueKey();
+    final Key secondKey = UniqueKey();
 
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.rtl,
-        child: new Center(
-          child: new AnimatedCrossFade(
+        child: Center(
+          child: AnimatedCrossFade(
             alignment: AlignmentDirectional.bottomEnd,
-            firstChild: new SizedBox(
+            firstChild: SizedBox(
               key: firstKey,
               width: 100.0,
               height: 100.0,
             ),
-            secondChild: new SizedBox(
+            secondChild: SizedBox(
               key: secondKey,
               width: 200.0,
               height: 200.0,
@@ -233,17 +232,17 @@ void main() {
     );
 
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.rtl,
-        child: new Center(
-          child: new AnimatedCrossFade(
+        child: Center(
+          child: AnimatedCrossFade(
             alignment: AlignmentDirectional.bottomEnd,
-            firstChild: new SizedBox(
+            firstChild: SizedBox(
               key: firstKey,
               width: 100.0,
               height: 100.0,
             ),
-            secondChild: new SizedBox(
+            secondChild: SizedBox(
               key: secondKey,
               width: 200.0,
               height: 200.0,
@@ -263,12 +262,12 @@ void main() {
     expect(box2.localToGlobal(Offset.zero), const Offset(325.0, 175.0));
   });
 
-  Widget crossFadeWithWatcher({bool towardsSecond: false}) {
-    return new Directionality(
+  Widget crossFadeWithWatcher({ bool towardsSecond = false }) {
+    return Directionality(
       textDirection: TextDirection.ltr,
-      child: new AnimatedCrossFade(
+      child: AnimatedCrossFade(
         firstChild: const _TickerWatchingWidget(),
-        secondChild: new Container(),
+        secondChild: Container(),
         crossFadeState: towardsSecond ? CrossFadeState.showSecond : CrossFadeState.showFirst,
         duration: const Duration(milliseconds: 50),
       ),
@@ -322,20 +321,20 @@ void main() {
     await tester.pumpWidget(
       const Directionality(
         textDirection: TextDirection.ltr,
-        child: const AnimatedCrossFade(
-          firstChild: const Text('AAA', textDirection: TextDirection.ltr),
-          secondChild: const Text('BBB', textDirection: TextDirection.ltr),
+        child: AnimatedCrossFade(
+          firstChild: Text('AAA', textDirection: TextDirection.ltr),
+          secondChild: Text('BBB', textDirection: TextDirection.ltr),
           crossFadeState: CrossFadeState.showFirst,
-          duration: const Duration(milliseconds: 50),
+          duration: Duration(milliseconds: 50),
         ),
       ),
     );
     expect(find.text('AAA'), findsOneWidget);
     expect(find.text('BBB'), findsOneWidget);
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
-        child: new AnimatedCrossFade(
+        child: AnimatedCrossFade(
           firstChild: const Text('AAA', textDirection: TextDirection.ltr),
           secondChild: const Text('BBB', textDirection: TextDirection.ltr),
           crossFadeState: CrossFadeState.showFirst,
@@ -347,9 +346,9 @@ void main() {
     expect(find.text('AAA'), findsOneWidget);
     expect(find.text('BBB'), findsNothing);
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
-        child: new AnimatedCrossFade(
+        child: AnimatedCrossFade(
           firstChild: const Text('AAA', textDirection: TextDirection.ltr),
           secondChild: const Text('BBB', textDirection: TextDirection.ltr),
           crossFadeState: CrossFadeState.showSecond,
@@ -361,26 +360,122 @@ void main() {
     expect(find.text('BBB'), findsOneWidget);
     expect(find.text('AAA'), findsNothing);
   });
+
+  testWidgets('AnimatedCrossFade test focus', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: AnimatedCrossFade(
+          firstChild: TextButton(onPressed: () {}, child: const Text('AAA')),
+          secondChild: TextButton(onPressed: () {}, child: const Text('BBB')),
+          crossFadeState: CrossFadeState.showFirst,
+          duration: const Duration(milliseconds: 50),
+        ),
+      ),
+    );
+
+    final FocusNode visibleNode = Focus.of(tester.element(find.text('AAA')), scopeOk: true);
+    visibleNode.requestFocus();
+    await tester.pump();
+    expect(visibleNode.hasPrimaryFocus, isTrue);
+
+    final FocusNode hiddenNode = Focus.of(tester.element(find.text('BBB')), scopeOk: true);
+    hiddenNode.requestFocus();
+    await tester.pump();
+    expect(hiddenNode.hasPrimaryFocus, isFalse);
+  });
+
+  testWidgets('AnimatedCrossFade bottom child can have focus', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: AnimatedCrossFade(
+          firstChild: TextButton(onPressed: () {}, child: const Text('AAA')),
+          secondChild: TextButton(onPressed: () {}, child: const Text('BBB')),
+          crossFadeState: CrossFadeState.showFirst,
+          duration: const Duration(milliseconds: 50),
+          excludeBottomFocus: false,
+        ),
+      ),
+    );
+
+    final FocusNode visibleNode = Focus.of(tester.element(find.text('AAA')), scopeOk: true);
+    visibleNode.requestFocus();
+    await tester.pump();
+    expect(visibleNode.hasPrimaryFocus, isTrue);
+
+    final FocusNode hiddenNode = Focus.of(tester.element(find.text('BBB')), scopeOk: true);
+    hiddenNode.requestFocus();
+    await tester.pump();
+    expect(hiddenNode.hasPrimaryFocus, isTrue);
+  });
+
+  testWidgets('AnimatedCrossFade second child do not receive touch events',
+      (WidgetTester tester) async {
+    int numberOfTouchEventNoticed = 0;
+
+    Future<void> buildAnimatedFrame(CrossFadeState crossFadeState) {
+      return tester.pumpWidget(
+        SizedBox(
+          width: 300,
+          height: 600,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: AnimatedCrossFade(
+              firstChild: const Text('AAA'),
+              secondChild: TextButton(
+                  style: TextButton.styleFrom(minimumSize: const Size(double.infinity, 600)),
+                  onPressed: () {
+                    numberOfTouchEventNoticed++;
+                  },
+                  child: const Text('BBB'),
+              ),
+              crossFadeState: crossFadeState,
+              duration: const Duration(milliseconds: 50),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Future<void> touchSecondButton() async {
+      final TestGesture gestureTouchSecondButton = await tester
+          .startGesture(const Offset(150, 300));
+
+      return gestureTouchSecondButton.up();
+    }
+
+    await buildAnimatedFrame(CrossFadeState.showSecond);
+
+    await touchSecondButton();
+    expect(numberOfTouchEventNoticed, 1);
+
+    await buildAnimatedFrame(CrossFadeState.showFirst);
+    await touchSecondButton();
+    await touchSecondButton();
+
+    expect(numberOfTouchEventNoticed, 1);
+  });
 }
 
 class _TickerWatchingWidget extends StatefulWidget {
   const _TickerWatchingWidget();
 
   @override
-  State<StatefulWidget> createState() => new _TickerWatchingWidgetState();
+  State<StatefulWidget> createState() => _TickerWatchingWidgetState();
 }
 
 class _TickerWatchingWidgetState extends State<_TickerWatchingWidget> with SingleTickerProviderStateMixin {
-  Ticker ticker;
+  late Ticker ticker;
 
   @override
   void initState() {
     super.initState();
-    ticker = createTicker((_) {})..start();
+    ticker = createTicker((_) { })..start();
   }
 
   @override
-  Widget build(BuildContext context) => new Container();
+  Widget build(BuildContext context) => Container();
 
   @override
   void dispose() {

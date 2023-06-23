@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,5 +8,5 @@ import 'dart:io' as system;
 // see //flutter/dev/bots/test.dart
 
 void main() {
-  system.Process.killPid(system.pid, system.ProcessSignal.SIGSEGV); // ignore: deprecated_member_use
+  system.Process.killPid(system.pid, system.ProcessSignal.sigsegv);
 }

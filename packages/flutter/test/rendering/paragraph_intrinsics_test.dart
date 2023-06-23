@@ -1,20 +1,20 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:flutter/rendering.dart';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('list body and paragraph intrinsics', () {
-    final RenderParagraph paragraph = new RenderParagraph(
+    final RenderParagraph paragraph = RenderParagraph(
       const TextSpan(
-        style: const TextStyle(height: 1.0),
+        style: TextStyle(height: 1.0),
         text: 'Hello World',
       ),
       textDirection: TextDirection.ltr,
     );
-    final RenderListBody testBlock = new RenderListBody(
+    final RenderListBody testBlock = RenderListBody(
       children: <RenderBox>[
         paragraph,
       ],

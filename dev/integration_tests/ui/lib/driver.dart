@@ -1,20 +1,21 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_driver/driver_extension.dart';
 
 void main() {
   enableFlutterDriverExtension();
-  runApp(new DriverTestApp());
+  runApp(const DriverTestApp());
 }
 
 class DriverTestApp extends StatefulWidget {
+  const DriverTestApp({super.key});
+
   @override
   State<StatefulWidget> createState() {
-    return new DriverTestAppState();
+    return DriverTestAppState();
   }
 }
 
@@ -24,23 +25,23 @@ class DriverTestAppState extends State<DriverTestApp> {
 
   @override
   Widget build(BuildContext context) {
-    return new MaterialApp(
-      home: new Scaffold(
-        appBar: new AppBar(
+    return MaterialApp(
+      home: Scaffold(
+        appBar: AppBar(
           title: const Text('FlutterDriver test'),
         ),
-        body: new ListView(
+        body: ListView(
           padding: const EdgeInsets.all(5.0),
           children: <Widget>[
-            new Row(
+            Row(
               children: <Widget>[
-                new Expanded(
-                  child: new Text(present ? 'present' : 'absent'),
+                Expanded(
+                  child: Text(present ? 'present' : 'absent'),
                 ),
-                new RaisedButton(
+                ElevatedButton(
                   child: const Text(
                     'toggle',
-                    key: const ValueKey<String>('togglePresent'),
+                    key: ValueKey<String>('togglePresent'),
                   ),
                   onPressed: () {
                     setState(() {
@@ -50,38 +51,38 @@ class DriverTestAppState extends State<DriverTestApp> {
                 ),
               ],
             ),
-            new Row(
+            Row(
               children: <Widget>[
                 const Expanded(
-                  child: const Text('hit testability'),
+                  child: Text('hit testability'),
                 ),
-                new DropdownButton<Letter>(
+                DropdownButton<Letter>(
                   key: const ValueKey<String>('dropdown'),
                   value: _selectedValue,
-                  onChanged: (Letter newValue) {
+                  onChanged: (Letter? newValue) {
                     setState(() {
-                      _selectedValue = newValue;
+                      _selectedValue = newValue!;
                     });
                   },
                   items: const <DropdownMenuItem<Letter>>[
-                    const DropdownMenuItem<Letter>(
+                    DropdownMenuItem<Letter>(
                       value: Letter.a,
-                      child: const Text('Aaa', key: const ValueKey<String>('a')),
+                      child: Text('Aaa', key: ValueKey<String>('a')),
                     ),
-                    const DropdownMenuItem<Letter>(
+                    DropdownMenuItem<Letter>(
                       value: Letter.b,
-                      child: const Text('Bbb', key: const ValueKey<String>('b')),
+                      child: Text('Bbb', key: ValueKey<String>('b')),
                     ),
-                    const DropdownMenuItem<Letter>(
+                    DropdownMenuItem<Letter>(
                       value: Letter.c,
-                      child: const Text('Ccc', key: const ValueKey<String>('c')),
+                      child: Text('Ccc', key: ValueKey<String>('c')),
                     ),
                   ],
                 ),
               ],
             ),
             const TextField(
-              key: const ValueKey<String>('enter-text-field'),
+              key: ValueKey<String>('enter-text-field'),
             ),
           ],
         ),

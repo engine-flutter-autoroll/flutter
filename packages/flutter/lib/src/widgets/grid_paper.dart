@@ -1,18 +1,16 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-import 'package:flutter/rendering.dart';
 
 import 'basic.dart';
 import 'framework.dart';
 
 class _GridPaperPainter extends CustomPainter {
   const _GridPaperPainter({
-    this.color,
-    this.interval,
-    this.divisions,
-    this.subdivisions
+    required this.color,
+    required this.interval,
+    required this.divisions,
+    required this.subdivisions,
   });
 
   final Color color;
@@ -22,16 +20,16 @@ class _GridPaperPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final Paint linePaint = new Paint()
+    final Paint linePaint = Paint()
       ..color = color;
     final double allDivisions = (divisions * subdivisions).toDouble();
     for (double x = 0.0; x <= size.width; x += interval / allDivisions) {
       linePaint.strokeWidth = (x % interval == 0.0) ? 1.0 : (x % (interval / subdivisions) == 0.0) ? 0.5 : 0.25;
-      canvas.drawLine(new Offset(x, 0.0), new Offset(x, size.height), linePaint);
+      canvas.drawLine(Offset(x, 0.0), Offset(x, size.height), linePaint);
     }
     for (double y = 0.0; y <= size.height; y += interval / allDivisions) {
       linePaint.strokeWidth = (y % interval == 0.0) ? 1.0 : (y % (interval / subdivisions) == 0.0) ? 0.5 : 0.25;
-      canvas.drawLine(new Offset(0.0, y), new Offset(size.width, y), linePaint);
+      canvas.drawLine(Offset(0.0, y), Offset(size.width, y), linePaint);
     }
   }
 
@@ -58,15 +56,14 @@ class _GridPaperPainter extends CustomPainter {
 class GridPaper extends StatelessWidget {
   /// Creates a widget that draws a rectilinear grid of 1-pixel-wide lines.
   const GridPaper({
-    Key key,
-    this.color: const Color(0x7FC3E8F3),
-    this.interval: 100.0,
-    this.divisions: 2,
-    this.subdivisions: 5,
+    super.key,
+    this.color = const Color(0x7FC3E8F3),
+    this.interval = 100.0,
+    this.divisions = 2,
+    this.subdivisions = 5,
     this.child,
   }) : assert(divisions > 0, 'The "divisions" property must be greater than zero. If there were no divisions, the grid paper would not paint anything.'),
-       assert(subdivisions > 0, 'The "subdivisions" property must be greater than zero. If there were no subdivisions, the grid paper would not paint anything.'),
-       super(key: key);
+       assert(subdivisions > 0, 'The "subdivisions" property must be greater than zero. If there were no subdivisions, the grid paper would not paint anything.');
 
   /// The color to draw the lines in the grid.
   ///
@@ -102,13 +99,13 @@ class GridPaper extends StatelessWidget {
 
   /// The widget below this widget in the tree.
   ///
-  /// {@macro flutter.widgets.child}
-  final Widget child;
+  /// {@macro flutter.widgets.ProxyWidget.child}
+  final Widget? child;
 
   @override
   Widget build(BuildContext context) {
-    return new CustomPaint(
-      foregroundPainter: new _GridPaperPainter(
+    return CustomPaint(
+      foregroundPainter: _GridPaperPainter(
         color: color,
         interval: interval,
         divisions: divisions,

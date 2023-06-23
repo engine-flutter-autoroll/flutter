@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,18 +8,11 @@ import 'package:flutter/material.dart';
 
 enum TestStatus { ok, pending, failed, complete }
 
-typedef Future<TestStepResult> TestStep();
+typedef TestStep = Future<TestStepResult> Function();
 
 const String nothing = '-';
 
 class TestStepResult {
-  static const TextStyle bold = const TextStyle(fontWeight: FontWeight.bold);
-  static const TestStepResult complete = const TestStepResult(
-    'Test complete',
-    nothing,
-    TestStatus.complete,
-  );
-
   const TestStepResult(this.name, this.description, this.status);
 
   factory TestStepResult.fromSnapshot(AsyncSnapshot<TestStepResult> snapshot) {
@@ -30,13 +23,12 @@ class TestStepResult {
         return const TestStepResult('Executing', nothing, TestStatus.pending);
       case ConnectionState.done:
         if (snapshot.hasData) {
-          return snapshot.data;
+          return snapshot.data!;
         } else {
-          final TestStepResult result = snapshot.error;
-          return result;
+          final Object? result = snapshot.error;
+          return result! as TestStepResult;
         }
-        break;
-      default:
+      case ConnectionState.active:
         throw 'Unsupported state ${snapshot.connectionState}';
     }
   }
@@ -45,16 +37,23 @@ class TestStepResult {
   final String description;
   final TestStatus status;
 
+  static const TextStyle bold = TextStyle(fontWeight: FontWeight.bold);
+  static const TestStepResult complete = TestStepResult(
+    'Test complete',
+    nothing,
+    TestStatus.complete,
+  );
+
   Widget asWidget(BuildContext context) {
-    return new Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        new Text('Step: $name', style: bold),
-        new Text(description),
+        Text('Step: $name', style: bold),
+        Text(description),
         const Text(' '),
-        new Text(
+        Text(
           status.toString().substring('TestStatus.'.length),
-          key: new ValueKey<String>(
+          key: ValueKey<String>(
               status == TestStatus.pending ? 'nostatus' : 'status'),
           style: bold,
         ),

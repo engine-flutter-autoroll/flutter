@@ -1,8 +1,7 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter/foundation.dart';
 import 'box.dart';
 import 'layer.dart';
 import 'object.dart';
@@ -30,13 +29,21 @@ import 'object.dart';
 ///
 /// See also:
 ///
-/// * <https://docs.flutter.io/javadoc/io/flutter/view/TextureRegistry.html>
-///   for how to create and manage backend textures on Android.
-/// * <https://docs.flutter.io/objcdoc/Protocols/FlutterTextureRegistry.html>
-///   for how to create and manage backend textures on iOS.
+///  * <https://api.flutter.dev/javadoc/io/flutter/view/TextureRegistry.html>
+///    for how to create and manage backend textures on Android.
+///  * <https://api.flutter.dev/objcdoc/Protocols/FlutterTextureRegistry.html>
+///    for how to create and manage backend textures on iOS.
 class TextureBox extends RenderBox {
-  /// Creates a box backed by the texture identified by [textureId].
-  TextureBox({ @required int textureId }) : assert(textureId != null), _textureId = textureId;
+  /// Creates a box backed by the texture identified by [textureId], and use
+  /// [filterQuality] to set texture's [FilterQuality].
+  TextureBox({
+    required int textureId,
+    bool freeze = false,
+    FilterQuality filterQuality = FilterQuality.low,
+  }) : assert(textureId != null),
+      _textureId = textureId,
+      _freeze = freeze,
+      _filterQuality = filterQuality;
 
   /// The identity of the backend texture.
   int get textureId => _textureId;
@@ -45,6 +52,28 @@ class TextureBox extends RenderBox {
     assert(value != null);
     if (value != _textureId) {
       _textureId = value;
+      markNeedsPaint();
+    }
+  }
+
+  /// When true the texture will not be updated with new frames.
+  bool get freeze => _freeze;
+  bool _freeze;
+  set freeze(bool value) {
+    assert(value != null);
+    if (value != _freeze) {
+      _freeze = value;
+      markNeedsPaint();
+    }
+  }
+
+  /// {@macro flutter.widgets.Texture.filterQuality}
+  FilterQuality get filterQuality => _filterQuality;
+  FilterQuality _filterQuality;
+  set filterQuality(FilterQuality value) {
+    assert(value != null);
+    if (value != _filterQuality) {
+      _filterQuality = value;
       markNeedsPaint();
     }
   }
@@ -59,22 +88,20 @@ class TextureBox extends RenderBox {
   bool get isRepaintBoundary => true;
 
   @override
-  void performResize() {
-    size = constraints.biggest;
+  Size computeDryLayout(BoxConstraints constraints) {
+    return constraints.biggest;
   }
 
   @override
-  bool hitTestSelf(Offset position) {
-    return true;
-  }
+  bool hitTestSelf(Offset position) => true;
 
   @override
   void paint(PaintingContext context, Offset offset) {
-    if (_textureId == null)
-      return;
-    context.addLayer(new TextureLayer(
-      rect: new Rect.fromLTWH(offset.dx, offset.dy, size.width, size.height),
+    context.addLayer(TextureLayer(
+      rect: Rect.fromLTWH(offset.dx, offset.dy, size.width, size.height),
       textureId: _textureId,
+      freeze: freeze,
+      filterQuality: _filterQuality,
     ));
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,10 +19,11 @@
   FlutterMethodChannel* batteryChannel = [FlutterMethodChannel
       methodChannelWithName:@"samples.flutter.io/battery"
             binaryMessenger:controller];
+  __weak typeof(self) weakSelf = self;
   [batteryChannel setMethodCallHandler:^(FlutterMethodCall* call,
                                          FlutterResult result) {
     if ([@"getBatteryLevel" isEqualToString:call.method]) {
-      int batteryLevel = [self getBatteryLevel];
+      int batteryLevel = [weakSelf getBatteryLevel];
       if (batteryLevel == -1) {
         result([FlutterError errorWithCode:@"UNAVAILABLE"
                                    message:@"Battery info unavailable"

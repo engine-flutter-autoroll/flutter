@@ -1,22 +1,27 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'package:flutter/foundation.dart';
+
 import 'simulation.dart';
+
+// Examples can assume:
+// late AnimationController _controller;
 
 /// A simulation that applies a constant accelerating force.
 ///
 /// Models a particle that follows Newton's second law of motion. The simulation
-/// ends when the position reaches a defined point.
+/// ends when the position exceeds a defined threshold.
 ///
-/// ## Sample code
+/// {@tool snippet}
 ///
 /// This method triggers an [AnimationController] (a previously constructed
 /// `_controller` field) to simulate a fall of 300 pixels.
 ///
 /// ```dart
 /// void _startFall() {
-///   _controller.animateWith(new GravitySimulation(
+///   _controller.animateWith(GravitySimulation(
 ///     10.0, // acceleration, pixels per second per second
 ///     0.0, // starting position, pixels
 ///     300.0, // ending position, pixels
@@ -24,9 +29,22 @@ import 'simulation.dart';
 ///   ));
 /// }
 /// ```
+/// {@end-tool}
 ///
 /// This [AnimationController] could be used with an [AnimatedBuilder] to
 /// animate the position of a child as if it was falling.
+///
+/// The end distance threshold (the constructor's third argument) must be
+/// specified as a positive number but can be reached in either the positive or
+/// negative direction. For example (assuming negative numbers represent higher
+/// physical positions than positive numbers, as is the case with the normal
+/// [Canvas] coordinate system), if the acceleration is positive ("down") the
+/// starting velocity is negative ("up"), and the starting distance is zero, the
+/// particle will climb from the origin, reach a plateau, then fall back towards
+/// and past the origin. If the end distance threshold is less than the height
+/// of the plateau, then the simulation will end during the climb; otherwise, it
+/// will end during the fall, after the particle travels below the origin by
+/// that distance.
 ///
 /// See also:
 ///
@@ -51,7 +69,7 @@ class GravitySimulation extends Simulation {
     double acceleration,
     double distance,
     double endDistance,
-    double velocity
+    double velocity,
   ) : assert(acceleration != null),
       assert(distance != null),
       assert(velocity != null),
@@ -75,4 +93,7 @@ class GravitySimulation extends Simulation {
 
   @override
   bool isDone(double time) => x(time).abs() >= _end;
+
+  @override
+  String toString() => '${objectRuntimeType(this, 'GravitySimulation')}(g: ${_a.toStringAsFixed(1)}, x₀: ${_x.toStringAsFixed(1)}, dx₀: ${_v.toStringAsFixed(1)}, xₘₐₓ: ±${_end.toStringAsFixed(1)})';
 }

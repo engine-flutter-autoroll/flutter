@@ -1,14 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
+import 'dart:ui' as ui show TextHeightBehavior;
+
 import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('DefaultTextStyle changes propagate to Text', (WidgetTester tester) async {
-    const Text textWidget = const Text('Hello', textDirection: TextDirection.ltr);
-    const TextStyle s1 = const TextStyle(
+    const Text textWidget = Text('Hello', textDirection: TextDirection.ltr);
+    const TextStyle s1 = TextStyle(
       fontSize: 10.0,
       fontWeight: FontWeight.w800,
       height: 123.0,
@@ -42,13 +44,13 @@ void main() {
   });
 
   testWidgets('AnimatedDefaultTextStyle changes propagate to Text', (WidgetTester tester) async {
-    const Text textWidget = const Text('Hello', textDirection: TextDirection.ltr);
-    const TextStyle s1 = const TextStyle(
+    const Text textWidget = Text('Hello', textDirection: TextDirection.ltr);
+    const TextStyle s1 = TextStyle(
       fontSize: 10.0,
       fontWeight: FontWeight.w800,
       height: 123.0,
     );
-    const TextStyle s2 = const TextStyle(
+    const TextStyle s2 = TextStyle(
       fontSize: 20.0,
       fontWeight: FontWeight.w200,
       height: 1.0,
@@ -56,8 +58,8 @@ void main() {
 
     await tester.pumpWidget(const AnimatedDefaultTextStyle(
       style: s1,
+      duration: Duration(milliseconds: 1000),
       child: textWidget,
-      duration: const Duration(milliseconds: 1000),
     ));
 
     final RichText text1 = tester.firstWidget(find.byType(RichText));
@@ -67,6 +69,8 @@ void main() {
     expect(text1.softWrap, isTrue);
     expect(text1.overflow, TextOverflow.clip);
     expect(text1.maxLines, isNull);
+    expect(text1.textWidthBasis, TextWidthBasis.parent);
+    expect(text1.textHeightBehavior, isNull);
 
     await tester.pumpWidget(const AnimatedDefaultTextStyle(
       style: s2,
@@ -74,8 +78,10 @@ void main() {
       softWrap: false,
       overflow: TextOverflow.fade,
       maxLines: 3,
+      textWidthBasis: TextWidthBasis.longestLine,
+      textHeightBehavior: ui.TextHeightBehavior(applyHeightToFirstAscent: false),
+      duration: Duration(milliseconds: 1000),
       child: textWidget,
-      duration: const Duration(milliseconds: 1000),
     ));
 
     final RichText text2 = tester.firstWidget(find.byType(RichText));
@@ -85,6 +91,8 @@ void main() {
     expect(text2.softWrap, false);
     expect(text2.overflow, TextOverflow.fade);
     expect(text2.maxLines, 3);
+    expect(text2.textWidthBasis, TextWidthBasis.longestLine);
+    expect(text2.textHeightBehavior, const ui.TextHeightBehavior(applyHeightToFirstAscent: false));
 
     await tester.pump(const Duration(milliseconds: 1000));
 
@@ -95,5 +103,7 @@ void main() {
     expect(text3.softWrap, false);
     expect(text3.overflow, TextOverflow.fade);
     expect(text3.maxLines, 3);
+    expect(text2.textWidthBasis, TextWidthBasis.longestLine);
+    expect(text2.textHeightBehavior, const ui.TextHeightBehavior(applyHeightToFirstAscent: false));
   });
 }

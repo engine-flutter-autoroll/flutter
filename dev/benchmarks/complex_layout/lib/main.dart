@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,24 +7,26 @@ import 'package:flutter/scheduler.dart' show timeDilation;
 
 void main() {
   runApp(
-    new ComplexLayoutApp()
+    const ComplexLayoutApp()
   );
 }
 
 enum ScrollMode { complex, tile }
 
 class ComplexLayoutApp extends StatefulWidget {
-  @override
-  ComplexLayoutAppState createState() => new ComplexLayoutAppState();
+  const ComplexLayoutApp({super.key});
 
-  static ComplexLayoutAppState of(BuildContext context) => context.ancestorStateOfType(const TypeMatcher<ComplexLayoutAppState>());
+  @override
+  ComplexLayoutAppState createState() => ComplexLayoutAppState();
+
+  static ComplexLayoutAppState? of(BuildContext context) => context.findAncestorStateOfType<ComplexLayoutAppState>();
 }
 
 class ComplexLayoutAppState extends State<ComplexLayoutApp> {
   @override
   Widget build(BuildContext context) {
-    return new MaterialApp(
-      theme: lightTheme ? new ThemeData.light() : new ThemeData.dark(),
+    return MaterialApp(
+      theme: lightTheme ? ThemeData.light() : ThemeData.dark(),
       title: 'Advanced Layout',
       home: scrollMode == ScrollMode.complex ? const ComplexLayout() : const TileScrollLayout());
   }
@@ -53,25 +55,25 @@ class ComplexLayoutAppState extends State<ComplexLayoutApp> {
 }
 
 class TileScrollLayout extends StatelessWidget {
-  const TileScrollLayout({ Key key }) : super(key: key);
+  const TileScrollLayout({ super.key });
 
   @override
   Widget build(BuildContext context) {
-    return new Scaffold(
-      appBar: new AppBar(title: const Text('Tile Scrolling Layout')),
-      body: new ListView.builder(
+    return Scaffold(
+      appBar: AppBar(title: const Text('Tile Scrolling Layout')),
+      body: ListView.builder(
         key: const Key('tiles-scroll'),
         itemCount: 200,
         itemBuilder: (BuildContext context, int index) {
-          return new Padding(
+          return Padding(
             padding: const EdgeInsets.all(5.0),
-            child: new Material(
+            child: Material(
               elevation: (index % 5 + 1).toDouble(),
               color: Colors.white,
-              child: new IconBar(),
+              child: const IconBar(),
             ),
           );
-        }
+        },
       ),
       drawer: const GalleryDrawer(),
     );
@@ -79,45 +81,47 @@ class TileScrollLayout extends StatelessWidget {
 }
 
 class ComplexLayout extends StatefulWidget {
-  const ComplexLayout({ Key key }) : super(key: key);
+  const ComplexLayout({ super.key });
 
   @override
-  ComplexLayoutState createState() => new ComplexLayoutState();
+  ComplexLayoutState createState() => ComplexLayoutState();
 
-  static ComplexLayoutState of(BuildContext context) => context.ancestorStateOfType(const TypeMatcher<ComplexLayoutState>());
+  static ComplexLayoutState? of(BuildContext context) => context.findAncestorStateOfType<ComplexLayoutState>();
 }
 
 class ComplexLayoutState extends State<ComplexLayout> {
   @override
   Widget build(BuildContext context) {
-    return new Scaffold(
-      appBar: new AppBar(
+    return Scaffold(
+      appBar: AppBar(
         title: const Text('Advanced Layout'),
         actions: <Widget>[
-          new IconButton(
+          IconButton(
             icon: const Icon(Icons.create),
             tooltip: 'Search',
             onPressed: () {
               print('Pressed search');
             },
           ),
-          new TopBarMenu()
-        ]
+          const TopBarMenu(),
+        ],
       ),
-      body: new Column(
+      body: Column(
         children: <Widget>[
-          new Expanded(
-            child: new ListView.builder(
+          Expanded(
+            child: ListView.builder(
               key: const Key('complex-scroll'), // this key is used by the driver test
+              controller: ScrollController(),  // So that the scroll offset can be tracked
               itemBuilder: (BuildContext context, int index) {
-                if (index % 2 == 0)
-                  return new FancyImageItem(index, key: new PageStorageKey<int>(index));
-                else
-                  return new FancyGalleryItem(index, key: new PageStorageKey<int>(index));
+                if (index.isEven) {
+                  return FancyImageItem(index, key: PageStorageKey<int>(index));
+                } else {
+                  return FancyGalleryItem(index, key: PageStorageKey<int>(index));
+                }
               },
-            )
+            ),
           ),
-          new BottomBar(),
+          const BottomBar(),
         ],
       ),
       drawer: const GalleryDrawer(),
@@ -126,58 +130,60 @@ class ComplexLayoutState extends State<ComplexLayout> {
 }
 
 class TopBarMenu extends StatelessWidget {
+  const TopBarMenu({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return new PopupMenuButton<String>(
+    return PopupMenuButton<String>(
       onSelected: (String value) { print('Selected: $value'); },
       itemBuilder: (BuildContext context) => <PopupMenuItem<String>>[
         const PopupMenuItem<String>(
           value: 'Friends',
-          child: const MenuItemWithIcon(Icons.people, 'Friends', '5 new')
+          child: MenuItemWithIcon(Icons.people, 'Friends', '5 new'),
         ),
         const PopupMenuItem<String>(
           value: 'Events',
-          child: const MenuItemWithIcon(Icons.event, 'Events', '12 upcoming')
+          child: MenuItemWithIcon(Icons.event, 'Events', '12 upcoming'),
         ),
         const PopupMenuItem<String>(
           value: 'Events',
-          child: const MenuItemWithIcon(Icons.group, 'Groups', '14')
+          child: MenuItemWithIcon(Icons.group, 'Groups', '14'),
         ),
         const PopupMenuItem<String>(
           value: 'Events',
-          child: const MenuItemWithIcon(Icons.image, 'Pictures', '12')
+          child: MenuItemWithIcon(Icons.image, 'Pictures', '12'),
         ),
         const PopupMenuItem<String>(
           value: 'Events',
-          child: const MenuItemWithIcon(Icons.near_me, 'Nearby', '33')
+          child: MenuItemWithIcon(Icons.near_me, 'Nearby', '33'),
         ),
         const PopupMenuItem<String>(
           value: 'Friends',
-          child: const MenuItemWithIcon(Icons.people, 'Friends', '5')
+          child: MenuItemWithIcon(Icons.people, 'Friends', '5'),
         ),
         const PopupMenuItem<String>(
           value: 'Events',
-          child: const MenuItemWithIcon(Icons.event, 'Events', '12')
+          child: MenuItemWithIcon(Icons.event, 'Events', '12'),
         ),
         const PopupMenuItem<String>(
           value: 'Events',
-          child: const MenuItemWithIcon(Icons.group, 'Groups', '14')
+          child: MenuItemWithIcon(Icons.group, 'Groups', '14'),
         ),
         const PopupMenuItem<String>(
           value: 'Events',
-          child: const MenuItemWithIcon(Icons.image, 'Pictures', '12')
+          child: MenuItemWithIcon(Icons.image, 'Pictures', '12'),
         ),
         const PopupMenuItem<String>(
           value: 'Events',
-          child: const MenuItemWithIcon(Icons.near_me, 'Nearby', '33')
-        )
-      ]
+          child: MenuItemWithIcon(Icons.near_me, 'Nearby', '33'),
+        ),
+      ],
     );
   }
 }
 
 class MenuItemWithIcon extends StatelessWidget {
-  const MenuItemWithIcon(this.icon, this.title, this.subtitle);
+  const MenuItemWithIcon(this.icon, this.title, this.subtitle, {super.key});
 
   final IconData icon;
   final String title;
@@ -185,152 +191,158 @@ class MenuItemWithIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return new Row(
+    return Row(
       children: <Widget>[
-        new Icon(icon),
-        new Padding(
+        Icon(icon),
+        Padding(
           padding: const EdgeInsets.only(left: 8.0, right: 8.0),
-          child: new Text(title)
+          child: Text(title),
         ),
-        new Text(subtitle, style: Theme.of(context).textTheme.caption)
-      ]
+        Text(subtitle, style: Theme.of(context).textTheme.caption),
+      ],
     );
   }
 }
 
 class FancyImageItem extends StatelessWidget {
-  const FancyImageItem(this.index, {Key key}) : super(key: key);
+  const FancyImageItem(this.index, {super.key});
 
   final int index;
 
   @override
   Widget build(BuildContext context) {
-    return new ListBody(
+    return ListBody(
       children: <Widget>[
-        new UserHeader('Ali Connors $index'),
-        new ItemDescription(),
-        new ItemImageBox(),
-        new InfoBar(),
+        UserHeader('Ali Connors $index'),
+        const ItemDescription(),
+        const ItemImageBox(),
+        const InfoBar(),
         const Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-          child: const Divider()
+          padding: EdgeInsets.symmetric(horizontal: 8.0),
+          child: Divider(),
         ),
-        new IconBar(),
-        new FatDivider()
-      ]
+        const IconBar(),
+        const FatDivider(),
+      ],
     );
   }
 }
 
 class FancyGalleryItem extends StatelessWidget {
-  const FancyGalleryItem(this.index, {Key key}) : super(key: key);
+  const FancyGalleryItem(this.index, {super.key});
 
   final int index;
   @override
   Widget build(BuildContext context) {
-    return new ListBody(
+    return ListBody(
       children: <Widget>[
         const UserHeader('Ali Connors'),
-        new ItemGalleryBox(index),
-        new InfoBar(),
+        ItemGalleryBox(index),
+        const InfoBar(),
         const Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-          child: const Divider()
+          padding: EdgeInsets.symmetric(horizontal: 8.0),
+          child: Divider(),
         ),
-        new IconBar(),
-        new FatDivider()
-      ]
+        const IconBar(),
+        const FatDivider(),
+      ],
     );
   }
 }
 
 class InfoBar extends StatelessWidget {
+  const InfoBar({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return new Padding(
+    return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: new Row(
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: <Widget>[
           const MiniIconWithText(Icons.thumb_up, '42'),
-          new Text('3 Comments', style: Theme.of(context).textTheme.caption)
-        ]
-      )
+          Text('3 Comments', style: Theme.of(context).textTheme.caption),
+        ],
+      ),
     );
   }
 }
 
 class IconBar extends StatelessWidget {
+  const IconBar({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return new Padding(
+    return Padding(
       padding: const EdgeInsets.only(left: 16.0, right: 16.0),
-      child: new Row(
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: const <Widget>[
-          const IconWithText(Icons.thumb_up, 'Like'),
-          const IconWithText(Icons.comment, 'Comment'),
-          const IconWithText(Icons.share, 'Share'),
-        ]
-      )
+          IconWithText(Icons.thumb_up, 'Like'),
+          IconWithText(Icons.comment, 'Comment'),
+          IconWithText(Icons.share, 'Share'),
+        ],
+      ),
     );
   }
 }
 
 class IconWithText extends StatelessWidget {
-  const IconWithText(this.icon, this.title);
+  const IconWithText(this.icon, this.title, {super.key});
 
   final IconData icon;
   final String title;
 
   @override
   Widget build(BuildContext context) {
-    return new Row(
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        new IconButton(
-          icon: new Icon(icon),
-          onPressed: () { print('Pressed $title button'); }
+        IconButton(
+          icon: Icon(icon),
+          onPressed: () { print('Pressed $title button'); },
         ),
-        new Text(title)
-      ]
+        Text(title),
+      ],
     );
   }
 }
 
 class MiniIconWithText extends StatelessWidget {
-  const MiniIconWithText(this.icon, this.title);
+  const MiniIconWithText(this.icon, this.title, {super.key});
 
   final IconData icon;
   final String title;
 
   @override
   Widget build(BuildContext context) {
-    return new Row(
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        new Padding(
+        Padding(
           padding: const EdgeInsets.only(right: 8.0),
-          child: new Container(
+          child: Container(
             width: 16.0,
             height: 16.0,
-            decoration: new BoxDecoration(
+            decoration: BoxDecoration(
               color: Theme.of(context).primaryColor,
-              shape: BoxShape.circle
+              shape: BoxShape.circle,
             ),
-            child: new Icon(icon, color: Colors.white, size: 12.0)
-          )
+            child: Icon(icon, color: Colors.white, size: 12.0),
+          ),
         ),
-        new Text(title, style: Theme.of(context).textTheme.caption)
-      ]
+        Text(title, style: Theme.of(context).textTheme.caption),
+      ],
     );
   }
 }
 
 class FatDivider extends StatelessWidget {
+  const FatDivider({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return new Container(
+    return Container(
       height: 8.0,
       color: Theme.of(context).dividerColor,
     );
@@ -338,234 +350,236 @@ class FatDivider extends StatelessWidget {
 }
 
 class UserHeader extends StatelessWidget {
-  const UserHeader(this.userName);
+  const UserHeader(this.userName, {super.key});
 
   final String userName;
 
   @override
   Widget build(BuildContext context) {
-    return new Padding(
+    return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: new Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           const Padding(
-            padding: const EdgeInsets.only(right: 8.0),
-            child: const Image(
-              image: const AssetImage('packages/flutter_gallery_assets/ali_connors_sml.png'),
+            padding: EdgeInsets.only(right: 8.0),
+            child: Image(
+              image: AssetImage('packages/flutter_gallery_assets/people/square/ali.png'),
               width: 32.0,
-              height: 32.0
-            )
+              height: 32.0,
+            ),
           ),
-          new Expanded(
-            child: new Column(
-              mainAxisAlignment: MainAxisAlignment.start,
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                new RichText(text: new TextSpan(
-                  style: Theme.of(context).textTheme.body1,
+                RichText(text: TextSpan(
+                  style: Theme.of(context).textTheme.bodyText2,
                   children: <TextSpan>[
-                    new TextSpan(text: userName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    TextSpan(text: userName, style: const TextStyle(fontWeight: FontWeight.bold)),
                     const TextSpan(text: ' shared a new '),
-                    const TextSpan(text: 'photo', style: const TextStyle(fontWeight: FontWeight.bold))
-                  ]
+                    const TextSpan(text: 'photo', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ],
                 )),
-                new Row(
+                Row(
                   children: <Widget>[
-                    new Text('Yesterday at 11:55 • ', style: Theme.of(context).textTheme.caption),
-                    new Icon(Icons.people, size: 16.0, color: Theme.of(context).textTheme.caption.color)
-                  ]
-                )
-              ]
-            )
+                    Text('Yesterday at 11:55 • ', style: Theme.of(context).textTheme.caption),
+                    Icon(Icons.people, size: 16.0, color: Theme.of(context).textTheme.caption!.color),
+                  ],
+                ),
+              ],
+            ),
           ),
-          new TopBarMenu()
-        ]
-      )
+          const TopBarMenu(),
+        ],
+      ),
     );
   }
 }
 
 class ItemDescription extends StatelessWidget {
+  const ItemDescription({super.key});
+
   @override
   Widget build(BuildContext context) {
     return const Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: const Text('Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.')
+      padding: EdgeInsets.all(8.0),
+      child: Text('Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.'),
     );
   }
 }
 
 class ItemImageBox extends StatelessWidget {
+  const ItemImageBox({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return new Padding(
+    return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: new Card(
-        child: new Column(
+      child: Card(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            new Stack(
+            Stack(
               children: <Widget>[
                 const SizedBox(
                   height: 230.0,
-                  child: const Image(
-                    image: const AssetImage('packages/flutter_gallery_assets/top_10_australian_beaches.png')
-                  )
+                  child: Image(
+                    image: AssetImage('packages/flutter_gallery_assets/places/india_chettinad_silk_maker.png')
+                  ),
                 ),
-                new Theme(
-                  data: new ThemeData.dark(),
-                  child: new Row(
+                Theme(
+                  data: ThemeData.dark(),
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: <Widget>[
-                      new IconButton(
+                      IconButton(
                         icon: const Icon(Icons.edit),
-                        onPressed: () { print('Pressed edit button'); }
+                        onPressed: () { print('Pressed edit button'); },
                       ),
-                      new IconButton(
+                      IconButton(
                         icon: const Icon(Icons.zoom_in),
-                        onPressed: () { print('Pressed zoom button'); }
+                        onPressed: () { print('Pressed zoom button'); },
                       ),
-                    ]
-                  )
+                    ],
+                  ),
                 ),
-                new Positioned(
+                Positioned(
                   bottom: 4.0,
                   left: 4.0,
-                  child: new Container(
-                    decoration: new BoxDecoration(
+                  child: Container(
+                    decoration: BoxDecoration(
                       color: Colors.black54,
-                      borderRadius: new BorderRadius.circular(2.0)
+                      borderRadius: BorderRadius.circular(2.0),
                     ),
                     padding: const EdgeInsets.all(4.0),
-                    child: const RichText(
+                    child: RichText(
                       text: const TextSpan(
-                        style: const TextStyle(color: Colors.white),
-                        children: const <TextSpan>[
-                          const TextSpan(
+                        style: TextStyle(color: Colors.white),
+                        children: <TextSpan>[
+                          TextSpan(
                             text: 'Photo by '
                           ),
-                          const TextSpan(
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                            text: 'Magic Mike'
-                          )
-                        ]
-                      )
-                    )
-                  )
-                )
-              ]
+                          TextSpan(
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                            text: 'Chris Godley',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             )
             ,
-            new Padding(
+            Padding(
               padding: const EdgeInsets.all(8.0),
-              child: new Column(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  new Text('Where can you find that amazing sunset?', style: Theme.of(context).textTheme.body2),
-                  new Text('The sun sets over stinson beach', style: Theme.of(context).textTheme.body1),
-                  new Text('flutter.io/amazingsunsets', style: Theme.of(context).textTheme.caption)
-                ]
-              )
-            )
-          ]
-        )
-      )
+                  Text('Artisans of Southern India', style: Theme.of(context).textTheme.bodyText1),
+                  Text('Silk Spinners', style: Theme.of(context).textTheme.bodyText2),
+                  Text('Sivaganga, Tamil Nadu', style: Theme.of(context).textTheme.caption),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
 class ItemGalleryBox extends StatelessWidget {
-  const ItemGalleryBox(this.index);
+  const ItemGalleryBox(this.index, {super.key});
 
   final int index;
 
   @override
   Widget build(BuildContext context) {
     final List<String> tabNames = <String>[
-      'A', 'B', 'C', 'D'
+      'A', 'B', 'C', 'D',
     ];
 
-    return new SizedBox(
+    return SizedBox(
       height: 200.0,
-      child: new DefaultTabController(
+      child: DefaultTabController(
         length: tabNames.length,
-        child: new Column(
+        child: Column(
           children: <Widget>[
-            new Expanded(
-              child: new TabBarView(
-                children: tabNames.map((String tabName) {
-                  return new Container(
-                    key: new PageStorageKey<String>(tabName),
-                    child: new Padding(
+            Expanded(
+              child: TabBarView(
+                children: tabNames.map<Widget>((String tabName) {
+                  return Container(
+                    key: PageStorageKey<String>(tabName),
+                    child: Padding(
                       padding: const EdgeInsets.all(8.0),
-                      child: new Card(
-                        child: new Column(
+                      child: Card(
+                        child: Column(
                           children: <Widget>[
-                            new Expanded(
-                              child: new Container(
+                            Expanded(
+                              child: Container(
                                 color: Theme.of(context).primaryColor,
-                                child: new Center(
-                                  child: new Text(tabName, style: Theme.of(context).textTheme.headline.copyWith(color: Colors.white)),
-                                )
-                              )
+                                child: Center(
+                                  child: Text(tabName, style: Theme.of(context).textTheme.headline5!.copyWith(color: Colors.white)),
+                                ),
+                              ),
                             ),
-                            new Row(
+                            Row(
                               children: <Widget>[
-                                new IconButton(
+                                IconButton(
                                   icon: const Icon(Icons.share),
                                   onPressed: () { print('Pressed share'); },
                                 ),
-                                new IconButton(
+                                IconButton(
                                   icon: const Icon(Icons.event),
                                   onPressed: () { print('Pressed event'); },
                                 ),
-                                new Expanded(
-                                  child: new Padding(
+                                Expanded(
+                                  child: Padding(
                                     padding: const EdgeInsets.only(left: 8.0),
-                                    child: new Text('This is item $tabName'),
-                                  )
-                                )
-                              ]
-                            )
-                          ]
-                        )
-                      )
-                    )
+                                    child: Text('This is item $tabName'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   );
-                }).toList()
-              )
+                }).toList(),
+              ),
             ),
-            new Container(
-              child: const TabPageSelector()
-            )
-          ]
-        )
-      )
+            const TabPageSelector(),
+          ],
+        ),
+      ),
     );
   }
 }
 
 class BottomBar extends StatelessWidget {
+  const BottomBar({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return new Container(
-      decoration: new BoxDecoration(
-        border: new Border(
-          top: new BorderSide(
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
             color: Theme.of(context).dividerColor,
-            width: 1.0
-          )
-        )
+          ),
+        ),
       ),
-      child: new Row(
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: const <Widget>[
-          const BottomBarButton(Icons.new_releases, 'News'),
-          const BottomBarButton(Icons.people, 'Requests'),
-          const BottomBarButton(Icons.chat, 'Messenger'),
-          const BottomBarButton(Icons.bookmark, 'Bookmark'),
-          const BottomBarButton(Icons.alarm, 'Alarm'),
+          BottomBarButton(Icons.new_releases, 'News'),
+          BottomBarButton(Icons.people, 'Requests'),
+          BottomBarButton(Icons.chat, 'Messenger'),
+          BottomBarButton(Icons.bookmark, 'Bookmark'),
+          BottomBarButton(Icons.alarm, 'Alarm'),
         ],
       ),
     );
@@ -573,87 +587,91 @@ class BottomBar extends StatelessWidget {
 }
 
 class BottomBarButton extends StatelessWidget {
-  const BottomBarButton(this.icon, this.title);
+  const BottomBarButton(this.icon, this.title, {super.key});
 
   final IconData icon;
   final String title;
 
   @override
   Widget build(BuildContext context) {
-    return new Padding(
+    return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: new Column(
+      child: Column(
         children: <Widget>[
-          new IconButton(
-            icon: new Icon(icon),
-            onPressed: () { print('Pressed: $title'); }
+          IconButton(
+            icon: Icon(icon),
+            onPressed: () { print('Pressed: $title'); },
           ),
-          new Text(title, style: Theme.of(context).textTheme.caption)
-        ]
-      )
+          Text(title, style: Theme.of(context).textTheme.caption),
+        ],
+      ),
     );
   }
 }
 
 class GalleryDrawer extends StatelessWidget {
-  const GalleryDrawer({ Key key }) : super(key: key);
+  const GalleryDrawer({ super.key });
 
   void _changeTheme(BuildContext context, bool value) {
-    ComplexLayoutApp.of(context).lightTheme = value;
+    ComplexLayoutApp.of(context)?.lightTheme = value;
   }
 
   void _changeScrollMode(BuildContext context, ScrollMode mode) {
-    ComplexLayoutApp.of(context).scrollMode = mode;
+    ComplexLayoutApp.of(context)?.scrollMode = mode;
   }
 
   @override
   Widget build(BuildContext context) {
-    final ScrollMode currentMode = ComplexLayoutApp.of(context).scrollMode;
-    return new Drawer(
+    final ScrollMode currentMode = ComplexLayoutApp.of(context)!.scrollMode;
+    return Drawer(
       // Note: for real apps, see the Gallery material Drawer demo. More
       // typically, a drawer would have a fixed header with a scrolling body
       // below it.
-      child: new ListView(
+      child: ListView(
         key: const PageStorageKey<String>('gallery-drawer'),
         padding: EdgeInsets.zero,
         children: <Widget>[
-          new FancyDrawerHeader(),
-          new ListTile(
+          const FancyDrawerHeader(),
+          ListTile(
             key: const Key('scroll-switcher'),
-            onTap: () { _changeScrollMode(context, currentMode == ScrollMode.complex ? ScrollMode.tile : ScrollMode.complex); },
-            trailing: new Text(currentMode == ScrollMode.complex ? 'Tile' : 'Complex')
+            title: const Text('Scroll Mode'),
+            onTap: () {
+              _changeScrollMode(context, currentMode == ScrollMode.complex ? ScrollMode.tile : ScrollMode.complex);
+             Navigator.pop(context);
+            },
+            trailing: Text(currentMode == ScrollMode.complex ? 'Tile' : 'Complex'),
           ),
-          new ListTile(
+          ListTile(
             leading: const Icon(Icons.brightness_5),
             title: const Text('Light'),
             onTap: () { _changeTheme(context, true); },
-            selected: ComplexLayoutApp.of(context).lightTheme,
-            trailing: new Radio<bool>(
+            selected: ComplexLayoutApp.of(context)!.lightTheme,
+            trailing: Radio<bool>(
               value: true,
-              groupValue: ComplexLayoutApp.of(context).lightTheme,
-              onChanged: (bool value) { _changeTheme(context, value); }
+              groupValue: ComplexLayoutApp.of(context)!.lightTheme,
+              onChanged: (bool? value) { _changeTheme(context, value!); },
             ),
           ),
-          new ListTile(
+          ListTile(
             leading: const Icon(Icons.brightness_7),
             title: const Text('Dark'),
             onTap: () { _changeTheme(context, false); },
-            selected: !ComplexLayoutApp.of(context).lightTheme,
-            trailing: new Radio<bool>(
+            selected: !ComplexLayoutApp.of(context)!.lightTheme,
+            trailing: Radio<bool>(
               value: false,
-              groupValue: ComplexLayoutApp.of(context).lightTheme,
-              onChanged: (bool value) { _changeTheme(context, value); },
+              groupValue: ComplexLayoutApp.of(context)!.lightTheme,
+              onChanged: (bool? value) { _changeTheme(context, value!); },
             ),
           ),
           const Divider(),
-          new ListTile(
+          ListTile(
             leading: const Icon(Icons.hourglass_empty),
             title: const Text('Animate Slowly'),
             selected: timeDilation != 1.0,
-            onTap: () { ComplexLayoutApp.of(context).toggleAnimationSpeed(); },
-            trailing: new Checkbox(
+            onTap: () { ComplexLayoutApp.of(context)!.toggleAnimationSpeed(); },
+            trailing: Checkbox(
               value: timeDilation != 1.0,
-              onChanged: (bool value) { ComplexLayoutApp.of(context).toggleAnimationSpeed(); }
+              onChanged: (bool? value) { ComplexLayoutApp.of(context)!.toggleAnimationSpeed(); },
             ),
           ),
         ],
@@ -663,14 +681,16 @@ class GalleryDrawer extends StatelessWidget {
 }
 
 class FancyDrawerHeader extends StatelessWidget {
+  const FancyDrawerHeader({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return new Container(
+    return Container(
       color: Colors.purple,
       height: 200.0,
       child: const SafeArea(
         bottom: false,
-        child: const Placeholder(),
+        child: Placeholder(),
       ),
     );
   }

@@ -1,8 +1,6 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-import 'dart:async';
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/semantics.dart';
@@ -28,15 +26,17 @@ import 'theme.dart';
 /// [StatelessWidget.build] method or from a [State]'s methods as you have to
 /// provide a [BuildContext].
 ///
-/// ## Sample code
+/// {@tool snippet}
 ///
 /// To trigger platform-specific feedback before executing the actual callback:
 ///
 /// ```dart
 /// class WidgetWithWrappedHandler extends StatelessWidget {
+///   const WidgetWithWrappedHandler({super.key});
+///
 ///   @override
 ///   Widget build(BuildContext context) {
-///     return new GestureDetector(
+///     return GestureDetector(
 ///       onTap: Feedback.wrapForTap(_onTapHandler, context),
 ///       onLongPress: Feedback.wrapForLongPress(_onLongPressHandler, context),
 ///       child: const Text('X'),
@@ -52,15 +52,19 @@ import 'theme.dart';
 ///   }
 /// }
 /// ```
+/// {@end-tool}
+/// {@tool snippet}
 ///
 /// Alternatively, you can also call [forTap] or [forLongPress] directly within
 /// your tap or long press handler:
 ///
 /// ```dart
 /// class WidgetWithExplicitCall extends StatelessWidget {
+///   const WidgetWithExplicitCall({super.key});
+///
 ///   @override
 ///   Widget build(BuildContext context) {
-///     return new GestureDetector(
+///     return GestureDetector(
 ///       onTap: () {
 ///         // Do some work (e.g. check if the tap is valid)
 ///         Feedback.forTap(context);
@@ -76,7 +80,10 @@ import 'theme.dart';
 ///   }
 /// }
 /// ```
+/// {@end-tool}
 class Feedback {
+  // This class is not meant to be instantiated or extended; this constructor
+  // prevents instantiation and extension.
   Feedback._();
 
   /// Provides platform-specific feedback for a tap.
@@ -87,14 +94,17 @@ class Feedback {
   ///
   ///  * [wrapForTap] to trigger platform-specific feedback before executing a
   ///    [GestureTapCallback].
-  static Future<Null> forTap(BuildContext context) async {
-    context.findRenderObject().sendSemanticsEvent(const TapSemanticEvent());
+  static Future<void> forTap(BuildContext context) async {
+    context.findRenderObject()!.sendSemanticsEvent(const TapSemanticEvent());
     switch (_platform(context)) {
       case TargetPlatform.android:
       case TargetPlatform.fuchsia:
         return SystemSound.play(SystemSoundType.click);
-      default:
-        return new Future<Null>.value();
+      case TargetPlatform.iOS:
+      case TargetPlatform.linux:
+      case TargetPlatform.macOS:
+      case TargetPlatform.windows:
+        return Future<void>.value();
     }
   }
 
@@ -108,9 +118,10 @@ class Feedback {
   ///
   ///  * [forTap] to just trigger the platform-specific feedback without wrapping
   ///    a [GestureTapCallback].
-  static GestureTapCallback wrapForTap(GestureTapCallback callback, BuildContext context) {
-    if (callback == null)
+  static GestureTapCallback? wrapForTap(GestureTapCallback? callback, BuildContext context) {
+    if (callback == null) {
       return null;
+    }
     return () {
       Feedback.forTap(context);
       callback();
@@ -126,14 +137,17 @@ class Feedback {
   ///
   ///  * [wrapForLongPress] to trigger platform-specific feedback before
   ///    executing a [GestureLongPressCallback].
-  static Future<Null> forLongPress(BuildContext context) {
-    context.findRenderObject().sendSemanticsEvent(const LongPressSemanticsEvent());
+  static Future<void> forLongPress(BuildContext context) {
+    context.findRenderObject()!.sendSemanticsEvent(const LongPressSemanticsEvent());
     switch (_platform(context)) {
       case TargetPlatform.android:
       case TargetPlatform.fuchsia:
         return HapticFeedback.vibrate();
-      default:
-        return new Future<Null>.value();
+      case TargetPlatform.iOS:
+      case TargetPlatform.linux:
+      case TargetPlatform.macOS:
+      case TargetPlatform.windows:
+        return Future<void>.value();
     }
   }
 
@@ -148,9 +162,10 @@ class Feedback {
   ///
   ///  * [forLongPress] to just trigger the platform-specific feedback without
   ///    wrapping a [GestureLongPressCallback].
-  static GestureLongPressCallback wrapForLongPress(GestureLongPressCallback callback, BuildContext context) {
-    if (callback == null)
+  static GestureLongPressCallback? wrapForLongPress(GestureLongPressCallback? callback, BuildContext context) {
+    if (callback == null) {
       return null;
+    }
     return () {
       Feedback.forLongPress(context);
       callback();

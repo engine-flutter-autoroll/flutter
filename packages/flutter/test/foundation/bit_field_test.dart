@@ -1,17 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:flutter/foundation.dart';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
-enum _TestEnum {
-  a, b, c, d, e, f, g, h,
-}
+// ignore: unused_field
+enum _TestEnum { a, b, c, d, e, f, g, h }
 
 void main() {
   test('BitField control test', () {
-    final BitField<_TestEnum> field = new BitField<_TestEnum>(8);
+    final BitField<_TestEnum> field = BitField<_TestEnum>(8);
 
     expect(field[_TestEnum.d], isFalse);
 
@@ -39,15 +38,15 @@ void main() {
     expect(field[_TestEnum.c], isTrue);
     expect(field[_TestEnum.d], isTrue);
     expect(field[_TestEnum.e], isTrue);
-  });
+  }, skip: isBrowser); // [intended] BitField is not supported when compiled to Javascript.
 
   test('BitField.filed control test', () {
-    final BitField<_TestEnum> field1 = new BitField<_TestEnum>.filled(8, true);
+    final BitField<_TestEnum> field1 = BitField<_TestEnum>.filled(8, true);
 
     expect(field1[_TestEnum.d], isTrue);
 
-    final BitField<_TestEnum> field2 = new BitField<_TestEnum>.filled(8, false);
+    final BitField<_TestEnum> field2 = BitField<_TestEnum>.filled(8, false);
 
     expect(field2[_TestEnum.d], isFalse);
-  });
+  }, skip: isBrowser); // [intended] BitField is not supported when compiled to Javascript.
 }

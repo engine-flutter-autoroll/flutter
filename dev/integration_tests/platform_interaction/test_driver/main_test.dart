@@ -1,13 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:flutter_driver/flutter_driver.dart';
-import 'package:test/test.dart';
+import 'package:test/test.dart' hide TypeMatcher, isInstanceOf;
 
 void main() {
   group('channel suite', () {
-    FlutterDriver driver;
+    late FlutterDriver driver;
 
     setUpAll(() async {
       driver = await FlutterDriver.connect(printCommunication: true);
@@ -25,10 +25,10 @@ void main() {
       if (status != 'complete') {
         fail('Failed at step $step with status $status');
       }
-    });
+    }, timeout: Timeout.none);
 
     tearDownAll(() async {
-      driver?.close();
+      driver.close();
     });
   });
 }

@@ -1,15 +1,22 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:test/test.dart';
+// TODO(gspencergoog): Remove this tag once this test's state leaks/test
+// dependencies have been fixed.
+// https://github.com/flutter/flutter/issues/85160
+// Fails with "flutter test --test-randomize-ordering-seed=123"
+@Tags(<String>['no-shuffle'])
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/widgets.dart';
 
+import 'package:flutter_test/flutter_test.dart';
+
 void main() {
   test('test_friction', () {
-    final FrictionSimulation friction = new FrictionSimulation(0.3, 100.0, 400.0);
+    final FrictionSimulation friction = FrictionSimulation(0.3, 100.0, 400.0);
 
     friction.tolerance = const Tolerance(velocity: 1.0);
 
@@ -21,7 +28,7 @@ void main() {
 
     expect(friction.dx(1.0), 120.0);
     expect(friction.dx(2.0), 36.0);
-    expect(friction.dx(3.0), 10.8);
+    expect(friction.dx(3.0), moreOrLessEquals(10.8));
     expect(friction.dx(4.0) < 3.5, true);
 
     expect(friction.isDone(5.0), true);
@@ -33,45 +40,42 @@ void main() {
     // velocity and positions with drag = 0.025.
     double startPosition = 10.0;
     double startVelocity = 600.0;
-    FrictionSimulation f = new FrictionSimulation(0.025, startPosition, startVelocity);
+    FrictionSimulation f = FrictionSimulation(0.025, startPosition, startVelocity);
     double endPosition = f.x(1.0);
     double endVelocity = f.dx(1.0);
     expect(endPosition, greaterThan(startPosition));
     expect(endVelocity, lessThan(startVelocity));
 
-    // Verify that that the "through" FrictionSimulation ends up at
+    // Verify that the "through" FrictionSimulation ends up at
     // endPosition and endVelocity; implies that it computed the right
     // value for _drag.
-    FrictionSimulation friction = new FrictionSimulation.through(
-        startPosition, endPosition, startVelocity, endVelocity);
+    FrictionSimulation friction = FrictionSimulation.through(startPosition, endPosition, startVelocity, endVelocity);
     expect(friction.isDone(0.0), false);
     expect(friction.x(0.0), 10.0);
     expect(friction.dx(0.0), 600.0);
 
-    const double epsilon = 1e-4;
-    expect(friction.isDone(1.0 + epsilon), true);
-    expect(friction.x(1.0), closeTo(endPosition, epsilon));
-    expect(friction.dx(1.0), closeTo(endVelocity, epsilon));
+    expect(friction.isDone(1.0 + precisionErrorTolerance), true);
+    expect(friction.x(1.0), moreOrLessEquals(endPosition));
+    expect(friction.dx(1.0), moreOrLessEquals(endVelocity));
 
     // Same scenario as above except that the velocities are
     // are negative.
     startPosition = 1000.0;
     startVelocity = -500.0;
-    f = new FrictionSimulation(0.025, 1000.0, -500.0);
+    f = FrictionSimulation(0.025, 1000.0, -500.0);
     endPosition = f.x(1.0);
     endVelocity = f.dx(1.0);
     expect(endPosition, lessThan(startPosition));
     expect(endVelocity, greaterThan(startVelocity));
 
-    friction = new FrictionSimulation.through(
-        startPosition, endPosition, startVelocity, endVelocity);
-    expect(friction.isDone(1.0 + epsilon), true);
-    expect(friction.x(1.0), closeTo(endPosition, epsilon));
-    expect(friction.dx(1.0), closeTo(endVelocity, epsilon));
+    friction = FrictionSimulation.through(startPosition, endPosition, startVelocity, endVelocity);
+    expect(friction.isDone(1.0 + precisionErrorTolerance), true);
+    expect(friction.x(1.0), moreOrLessEquals(endPosition));
+    expect(friction.dx(1.0), moreOrLessEquals(endVelocity));
   });
 
   test('BoundedFrictionSimulation control test', () {
-    final BoundedFrictionSimulation friction = new BoundedFrictionSimulation(0.3, 100.0, 400.0, 50.0, 150.0);
+    final BoundedFrictionSimulation friction = BoundedFrictionSimulation(0.3, 100.0, 400.0, 50.0, 150.0);
 
     friction.tolerance = const Tolerance(velocity: 1.0);
 
@@ -85,7 +89,7 @@ void main() {
   });
 
   test('test_gravity', () {
-    final GravitySimulation gravity = new GravitySimulation(200.0, 100.0, 600.0, 0.0);
+    final GravitySimulation gravity = GravitySimulation(200.0, 100.0, 600.0, 0.0);
 
     expect(gravity.isDone(0.0), false);
     expect(gravity.x(0.0), 100.0);
@@ -115,32 +119,46 @@ void main() {
   });
 
   test('spring_types', () {
-    SpringSimulation crit = new SpringSimulation(new SpringDescription.withDampingRatio(
-        mass: 1.0, stiffness: 100.0), 0.0, 300.0, 0.0);
+    SpringSimulation crit = SpringSimulation(SpringDescription.withDampingRatio(
+      mass: 1.0,
+      stiffness: 100.0,
+    ), 0.0, 300.0, 0.0);
     expect(crit.type, SpringType.criticallyDamped);
 
-    crit = new SpringSimulation(new SpringDescription.withDampingRatio(
-        mass: 1.0, stiffness: 100.0, ratio: 1.0), 0.0, 300.0, 0.0);
+    crit = SpringSimulation(SpringDescription.withDampingRatio(
+      mass: 1.0,
+      stiffness: 100.0,
+    ), 0.0, 300.0, 0.0);
     expect(crit.type, SpringType.criticallyDamped);
 
-    final SpringSimulation under = new SpringSimulation(new SpringDescription.withDampingRatio(
-        mass: 1.0, stiffness: 100.0, ratio: 0.75), 0.0, 300.0, 0.0);
+    final SpringSimulation under = SpringSimulation(SpringDescription.withDampingRatio(
+      mass: 1.0,
+      stiffness: 100.0,
+      ratio: 0.75,
+    ), 0.0, 300.0, 0.0);
     expect(under.type, SpringType.underDamped);
 
-    final SpringSimulation over = new SpringSimulation(new SpringDescription.withDampingRatio(
-        mass: 1.0, stiffness: 100.0, ratio: 1.25), 0.0, 300.0, 0.0);
+    final SpringSimulation over = SpringSimulation(SpringDescription.withDampingRatio(
+      mass: 1.0,
+      stiffness: 100.0,
+      ratio: 1.25,
+    ), 0.0, 300.0, 0.0);
     expect(over.type, SpringType.overDamped);
 
     // Just so we don't forget how to create a desc without the ratio.
-    final SpringSimulation other = new SpringSimulation(
-        const SpringDescription(mass: 1.0, stiffness: 100.0, damping: 20.0),
-        0.0, 20.0, 20.0);
+    final SpringSimulation other = SpringSimulation(const SpringDescription(
+      mass: 1.0,
+      stiffness: 100.0,
+      damping: 20.0,
+    ), 0.0, 20.0, 20.0);
     expect(other.type, SpringType.criticallyDamped);
   });
 
   test('crit_spring', () {
-    final SpringSimulation crit = new SpringSimulation(new SpringDescription.withDampingRatio(
-        mass: 1.0, stiffness: 100.0, ratio: 1.0), 0.0, 500.0, 0.0);
+    final SpringSimulation crit = SpringSimulation(SpringDescription.withDampingRatio(
+      mass: 1.0,
+      stiffness: 100.0,
+    ), 0.0, 500.0, 0.0);
 
     crit.tolerance = const Tolerance(distance: 0.01, velocity: 0.01);
 
@@ -164,8 +182,11 @@ void main() {
   });
 
   test('overdamped_spring', () {
-    final SpringSimulation over = new SpringSimulation(new SpringDescription.withDampingRatio(
-        mass: 1.0, stiffness: 100.0, ratio: 1.25), 0.0, 500.0, 0.0);
+    final SpringSimulation over = SpringSimulation(SpringDescription.withDampingRatio(
+      mass: 1.0,
+      stiffness: 100.0,
+      ratio: 1.25,
+    ), 0.0, 500.0, 0.0);
 
     over.tolerance = const Tolerance(distance: 0.01, velocity: 0.01);
 
@@ -186,8 +207,11 @@ void main() {
   });
 
   test('underdamped_spring', () {
-    final SpringSimulation under = new SpringSimulation(new SpringDescription.withDampingRatio(
-        mass: 1.0, stiffness: 100.0, ratio: 0.25), 0.0, 300.0, 0.0);
+    final SpringSimulation under = SpringSimulation(SpringDescription.withDampingRatio(
+      mass: 1.0,
+      stiffness: 100.0,
+      ratio: 0.25,
+    ), 0.0, 300.0, 0.0);
     expect(under.type, SpringType.underDamped);
 
     expect(under.isDone(0.0), false);
@@ -203,10 +227,13 @@ void main() {
   });
 
   test('test_kinetic_scroll', () {
-    final SpringDescription spring = new SpringDescription.withDampingRatio(
-        mass: 1.0, stiffness: 50.0, ratio: 0.5);
+    final SpringDescription spring = SpringDescription.withDampingRatio(
+      mass: 1.0,
+      stiffness: 50.0,
+      ratio: 0.5,
+    );
 
-    final BouncingScrollSimulation scroll = new BouncingScrollSimulation(
+    final BouncingScrollSimulation scroll = BouncingScrollSimulation(
       position: 100.0,
       velocity: 800.0,
       leadingExtent: 0.0,
@@ -218,7 +245,7 @@ void main() {
     expect(scroll.isDone(0.5), false); // switch from friction to spring
     expect(scroll.isDone(3.5), true);
 
-    final BouncingScrollSimulation scroll2 = new BouncingScrollSimulation(
+    final BouncingScrollSimulation scroll2 = BouncingScrollSimulation(
       position: 100.0,
       velocity: -800.0,
       leadingExtent: 0.0,
@@ -232,10 +259,13 @@ void main() {
   });
 
   test('scroll_with_inf_edge_ends', () {
-    final SpringDescription spring = new SpringDescription.withDampingRatio(
-        mass: 1.0, stiffness: 50.0, ratio: 0.5);
+    final SpringDescription spring = SpringDescription.withDampingRatio(
+      mass: 1.0,
+      stiffness: 50.0,
+      ratio: 0.5,
+    );
 
-    final BouncingScrollSimulation scroll = new BouncingScrollSimulation(
+    final BouncingScrollSimulation scroll = BouncingScrollSimulation(
       position: 100.0,
       velocity: 400.0,
       leadingExtent: 0.0,
@@ -248,19 +278,19 @@ void main() {
     expect(scroll.x(0.0), 100);
     expect(scroll.dx(0.0), 400.0);
 
-    expect(scroll.x(1.0), closeTo(272.0, 1.0));
+    expect(scroll.x(1.0), moreOrLessEquals(272.0, epsilon: 1.0));
 
-    expect(scroll.dx(1.0), closeTo(54.0, 1.0));
-    expect(scroll.dx(2.0), closeTo(7.0, 1.0));
+    expect(scroll.dx(1.0), moreOrLessEquals(54.0, epsilon: 1.0));
+    expect(scroll.dx(2.0), moreOrLessEquals(7.0, epsilon: 1.0));
     expect(scroll.dx(3.0), lessThan(1.0));
 
     expect(scroll.isDone(5.0), true);
-    expect(scroll.x(5.0), closeTo(300.0, 1.0));
+    expect(scroll.x(5.0), moreOrLessEquals(300.0, epsilon: 1.0));
   });
 
   test('over/under scroll spring', () {
-    final SpringDescription spring = new SpringDescription.withDampingRatio(mass: 1.0, stiffness: 170.0, ratio: 1.1);
-    final BouncingScrollSimulation scroll = new BouncingScrollSimulation(
+    final SpringDescription spring = SpringDescription.withDampingRatio(mass: 1.0, stiffness: 170.0, ratio: 1.1);
+    final BouncingScrollSimulation scroll = BouncingScrollSimulation(
       position: 500.0,
       velocity: -7500.0,
       leadingExtent: 0.0,
@@ -270,33 +300,33 @@ void main() {
     scroll.tolerance = const Tolerance(velocity: 45.0, distance: 1.5);
 
     expect(scroll.isDone(0.0), false);
-    expect(scroll.x(0.0), closeTo(500.0, .0001));
-    expect(scroll.dx(0.0), closeTo(-7500.0, .0001));
+    expect(scroll.x(0.0), moreOrLessEquals(500.0));
+    expect(scroll.dx(0.0), moreOrLessEquals(-7500.0));
 
     // Expect to reach 0.0 at about t=.07 at which point the simulation will
     // switch from friction to the spring
     expect(scroll.isDone(0.065), false);
-    expect(scroll.x(0.065), closeTo(42.0, 1.0));
-    expect(scroll.dx(0.065), closeTo(-6584.0, 1.0));
+    expect(scroll.x(0.065), moreOrLessEquals(42.0, epsilon: 1.0));
+    expect(scroll.dx(0.065), moreOrLessEquals(-6584.0, epsilon: 1.0));
 
     // We've overscrolled (0.1 > 0.07). Trigger the underscroll
     // simulation, and reverse direction
     expect(scroll.isDone(0.1), false);
-    expect(scroll.x(0.1), closeTo(-123.0, 1.0));
-    expect(scroll.dx(0.1), closeTo(-2613.0, 1.0));
+    expect(scroll.x(0.1), moreOrLessEquals(-123.0, epsilon: 1.0));
+    expect(scroll.dx(0.1), moreOrLessEquals(-2613.0, epsilon: 1.0));
 
     // Headed back towards 0.0 and slowing down.
     expect(scroll.isDone(0.5), false);
-    expect(scroll.x(0.5), closeTo(-15.0, 1.0));
-    expect(scroll.dx(0.5), closeTo(124.0, 1.0));
+    expect(scroll.x(0.5), moreOrLessEquals(-15.0, epsilon: 1.0));
+    expect(scroll.dx(0.5), moreOrLessEquals(124.0, epsilon: 1.0));
 
     // Now jump back to the beginning, because we can.
     expect(scroll.isDone(0.0), false);
-    expect(scroll.x(0.0), closeTo(500.0, .0001));
-    expect(scroll.dx(0.0), closeTo(-7500.0, .0001));
+    expect(scroll.x(0.0), moreOrLessEquals(500.0));
+    expect(scroll.dx(0.0), moreOrLessEquals(-7500.0));
 
     expect(scroll.isDone(2.0), true);
     expect(scroll.x(2.0), 0.0);
-    expect(scroll.dx(2.0), closeTo(0.0, 1.0));
+    expect(scroll.dx(2.0), moreOrLessEquals(0.0, epsilon: 1.0));
   });
 }

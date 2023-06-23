@@ -1,14 +1,18 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/widgets.dart';
 
 import 'colors.dart';
+import 'debug.dart';
+import 'drawer_theme.dart';
 import 'list_tile.dart';
+import 'list_tile_theme.dart';
 import 'material.dart';
 import 'material_localizations.dart';
+import 'theme.dart';
 
 /// The possible alignments of a [Drawer].
 enum DrawerAlignment {
@@ -26,7 +30,7 @@ enum DrawerAlignment {
 }
 
 // TODO(eseidel): Draw width should vary based on device size:
-// http://material.google.com/layout/structure.html#structure-side-nav
+// https://material.io/design/components/navigation-drawer.html#specs
 
 // Mobile:
 // Width = Screen width − 56 dp
@@ -41,10 +45,12 @@ enum DrawerAlignment {
 const double _kWidth = 304.0;
 const double _kEdgeDragWidth = 20.0;
 const double _kMinFlingVelocity = 365.0;
-const Duration _kBaseSettleDuration = const Duration(milliseconds: 246);
+const Duration _kBaseSettleDuration = Duration(milliseconds: 246);
 
-/// A material design panel that slides in horizontally from the edge of a
+/// A Material Design panel that slides in horizontally from the edge of a
 /// [Scaffold] to show navigation links in an application.
+///
+/// {@youtube 560 315 https://www.youtube.com/watch?v=WRj86iHihgY}
 ///
 /// Drawers are typically used with the [Scaffold.drawer] property. The child of
 /// the drawer is usually a [ListView] whose first child is a [DrawerHeader]
@@ -52,23 +58,73 @@ const Duration _kBaseSettleDuration = const Duration(milliseconds: 246);
 /// drawer children are often constructed with [ListTile]s, often concluding
 /// with an [AboutListTile].
 ///
-/// An open drawer can be closed by calling [Navigator.pop]. For example
-/// a drawer item might close the drawer when tapped:
+/// The [AppBar] automatically displays an appropriate [IconButton] to show the
+/// [Drawer] when a [Drawer] is available in the [Scaffold]. The [Scaffold]
+/// automatically handles the edge-swipe gesture to show the drawer.
+///
+/// {@animation 350 622 https://flutter.github.io/assets-for-api-docs/assets/material/drawer.mp4}
+///
+/// {@tool snippet}
+/// This example shows how to create a [Scaffold] that contains an [AppBar] and
+/// a [Drawer]. A user taps the "menu" icon in the [AppBar] to open the
+/// [Drawer]. The [Drawer] displays four items: A header and three menu items.
+/// The [Drawer] displays the four items using a [ListView], which allows the
+/// user to scroll through the items if need be.
 ///
 /// ```dart
-/// new ListTile(
-///   leading: new Icon(Icons.change_history),
-///   title: new Text('Change history'),
+/// Scaffold(
+///   appBar: AppBar(
+///     title: const Text('Drawer Demo'),
+///   ),
+///   drawer: Drawer(
+///     child: ListView(
+///       padding: EdgeInsets.zero,
+///       children: const <Widget>[
+///         DrawerHeader(
+///           decoration: BoxDecoration(
+///             color: Colors.blue,
+///           ),
+///           child: Text(
+///             'Drawer Header',
+///             style: TextStyle(
+///               color: Colors.white,
+///               fontSize: 24,
+///             ),
+///           ),
+///         ),
+///         ListTile(
+///           leading: Icon(Icons.message),
+///           title: Text('Messages'),
+///         ),
+///         ListTile(
+///           leading: Icon(Icons.account_circle),
+///           title: Text('Profile'),
+///         ),
+///         ListTile(
+///           leading: Icon(Icons.settings),
+///           title: Text('Settings'),
+///         ),
+///       ],
+///     ),
+///   ),
+/// )
+/// ```
+/// {@end-tool}
+///
+/// An open drawer may be closed with a swipe to close gesture, pressing the
+/// the escape key, by tapping the scrim, or by calling pop route function such as
+/// [Navigator.pop]. For example a drawer item might close the drawer when tapped:
+///
+/// ```dart
+/// ListTile(
+///   leading: Icon(Icons.change_history),
+///   title: Text('Change history'),
 ///   onTap: () {
 ///     // change app state...
 ///     Navigator.pop(context); // close the drawer
 ///   },
 /// );
 /// ```
-///
-/// The [AppBar] automatically displays an appropriate [IconButton] to show the
-/// [Drawer] when a [Drawer] is available in the [Scaffold]. The [Scaffold]
-/// automatically handles the edge-swipe gesture to show the drawer.
 ///
 /// See also:
 ///
@@ -77,63 +133,97 @@ const Duration _kBaseSettleDuration = const Duration(milliseconds: 246);
 ///  * [Scaffold.of], to obtain the current [ScaffoldState], which manages the
 ///    display and animation of the drawer.
 ///  * [ScaffoldState.openDrawer], which displays its [Drawer], if any.
-///  * <https://material.google.com/patterns/navigation-drawer.html>
+///  * <https://material.io/design/components/navigation-drawer.html>
 class Drawer extends StatelessWidget {
-  /// Creates a material design drawer.
+  /// Creates a Material Design drawer.
   ///
   /// Typically used in the [Scaffold.drawer] property.
+  ///
+  /// The [elevation] must be non-negative.
   const Drawer({
-    Key key,
-    this.elevation: 16.0,
+    super.key,
+    this.backgroundColor,
+    this.elevation,
+    this.shape,
+    this.width,
     this.child,
     this.semanticLabel,
-  }) : super(key: key);
+  }) : assert(elevation == null || elevation >= 0.0);
 
-  /// The z-coordinate at which to place this drawer. This controls the size of
-  /// the shadow below the drawer.
+  /// Sets the color of the [Material] that holds all of the [Drawer]'s
+  /// contents.
   ///
-  /// Defaults to 16, the appropriate elevation for drawers.
-  final double elevation;
+  /// If this is null, then [DrawerThemeData.backgroundColor] is used. If that
+  /// is also null, then it falls back to [Material]'s default.
+  final Color? backgroundColor;
+
+  /// The z-coordinate at which to place this drawer relative to its parent.
+  ///
+  /// This controls the size of the shadow below the drawer.
+  ///
+  /// If this is null, then [DrawerThemeData.elevation] is used. If that
+  /// is also null, then it defaults to 16.0.
+  final double? elevation;
+
+  /// The shape of the drawer.
+  ///
+  /// Defines the drawer's [Material.shape].
+  ///
+  /// If this is null, then [DrawerThemeData.shape] is used. If that
+  /// is also null, then it falls back to [Material]'s default.
+  final ShapeBorder? shape;
+
+  /// The width of the drawer.
+  ///
+  /// If this is null, then [DrawerThemeData.width] is used. If that is also
+  /// null, then it falls back to the Material spec's default (304.0).
+  final double? width;
 
   /// The widget below this widget in the tree.
   ///
   /// Typically a [SliverList].
   ///
-  /// {@macro flutter.widgets.child}
-  final Widget child;
+  /// {@macro flutter.widgets.ProxyWidget.child}
+  final Widget? child;
 
-  /// The semantic label of the dialog used by accessibility frameworks to 
+  /// The semantic label of the dialog used by accessibility frameworks to
   /// announce screen transitions when the drawer is opened and closed.
-  /// 
+  ///
   /// If this label is not provided, it will default to
   /// [MaterialLocalizations.drawerLabel].
-  /// 
+  ///
   /// See also:
-  /// 
+  ///
   ///  * [SemanticsConfiguration.namesRoute], for a description of how this
   ///    value is used.
-  final String semanticLabel;
+  final String? semanticLabel;
 
   @override
   Widget build(BuildContext context) {
-    String label = semanticLabel;
-    switch (defaultTargetPlatform) {
+    assert(debugCheckHasMaterialLocalizations(context));
+    final DrawerThemeData drawerTheme = DrawerTheme.of(context);
+    String? label = semanticLabel;
+    switch (Theme.of(context).platform) {
       case TargetPlatform.iOS:
-        label = semanticLabel;
+      case TargetPlatform.macOS:
         break;
       case TargetPlatform.android:
       case TargetPlatform.fuchsia:
-        label = semanticLabel ?? MaterialLocalizations.of(context)?.drawerLabel;
+      case TargetPlatform.linux:
+      case TargetPlatform.windows:
+        label = semanticLabel ?? MaterialLocalizations.of(context).drawerLabel;
     }
-    return new Semantics(
+    return Semantics(
       scopesRoute: true,
       namesRoute: true,
       explicitChildNodes: true,
       label: label,
-      child: new ConstrainedBox(
-        constraints: const BoxConstraints.expand(width: _kWidth),
-        child: new Material(
-          elevation: elevation,
+      child: ConstrainedBox(
+        constraints: BoxConstraints.expand(width: width ?? drawerTheme.width ?? _kWidth),
+        child: Material(
+          color: backgroundColor ?? drawerTheme.backgroundColor,
+          elevation: elevation ?? drawerTheme.elevation ?? 16.0,
+          shape: shape ?? drawerTheme.shape,
           child: child,
         ),
       ),
@@ -141,12 +231,16 @@ class Drawer extends StatelessWidget {
   }
 }
 
+/// Signature for the callback that's called when a [DrawerController] is
+/// opened or closed.
+typedef DrawerCallback = void Function(bool isOpened);
+
 /// Provides interactive behavior for [Drawer] widgets.
 ///
 /// Rarely used directly. Drawer controllers are typically created automatically
 /// by [Scaffold] widgets.
 ///
-/// The draw controller provides the ability to open and close a drawer, either
+/// The drawer controller provides the ability to open and close a drawer, either
 /// via an animation or via user interaction. When closed, the drawer collapses
 /// to a translucent gesture detector that can be used to listen for edge
 /// swipes.
@@ -162,10 +256,17 @@ class DrawerController extends StatefulWidget {
   ///
   /// The [child] argument must not be null and is typically a [Drawer].
   const DrawerController({
-    GlobalKey key,
-    @required this.child,
-    @required this.alignment,
+    GlobalKey? key,
+    required this.child,
+    required this.alignment,
+    this.isDrawerOpen = false,
+    this.drawerCallback,
+    this.dragStartBehavior = DragStartBehavior.start,
+    this.scrimColor,
+    this.edgeDragWidth,
+    this.enableOpenDragGesture = true,
   }) : assert(child != null),
+       assert(dragStartBehavior != null),
        assert(alignment != null),
        super(key: key);
 
@@ -180,8 +281,64 @@ class DrawerController extends StatefulWidget {
   /// close the drawer.
   final DrawerAlignment alignment;
 
+  /// Optional callback that is called when a [Drawer] is opened or closed.
+  final DrawerCallback? drawerCallback;
+
+  /// {@template flutter.material.DrawerController.dragStartBehavior}
+  /// Determines the way that drag start behavior is handled.
+  ///
+  /// If set to [DragStartBehavior.start], the drag behavior used for opening
+  /// and closing a drawer will begin at the position where the drag gesture won
+  /// the arena. If set to [DragStartBehavior.down] it will begin at the position
+  /// where a down event is first detected.
+  ///
+  /// In general, setting this to [DragStartBehavior.start] will make drag
+  /// animation smoother and setting it to [DragStartBehavior.down] will make
+  /// drag behavior feel slightly more reactive.
+  ///
+  /// By default, the drag start behavior is [DragStartBehavior.start].
+  ///
+  /// See also:
+  ///
+  ///  * [DragGestureRecognizer.dragStartBehavior], which gives an example for
+  ///    the different behaviors.
+  ///
+  /// {@endtemplate}
+  final DragStartBehavior dragStartBehavior;
+
+  /// The color to use for the scrim that obscures the underlying content while
+  /// a drawer is open.
+  ///
+  /// If this is null, then [DrawerThemeData.scrimColor] is used. If that
+  /// is also null, then it defaults to [Colors.black54].
+  final Color? scrimColor;
+
+  /// Determines if the [Drawer] can be opened with a drag gesture.
+  ///
+  /// By default, the drag gesture is enabled.
+  final bool enableOpenDragGesture;
+
+  /// The width of the area within which a horizontal swipe will open the
+  /// drawer.
+  ///
+  /// By default, the value used is 20.0 added to the padding edge of
+  /// `MediaQuery.of(context).padding` that corresponds to [alignment].
+  /// This ensures that the drag area for notched devices is not obscured. For
+  /// example, if [alignment] is set to [DrawerAlignment.start] and
+  /// `TextDirection.of(context)` is set to [TextDirection.ltr],
+  /// 20.0 will be added to `MediaQuery.of(context).padding.left`.
+  final double? edgeDragWidth;
+
+  /// Whether or not the drawer is opened or closed.
+  ///
+  /// This parameter is primarily used by the state restoration framework
+  /// to restore the drawer's animation controller to the open or closed state
+  /// depending on what was last saved to the target platform before the
+  /// application was killed.
+  final bool isDrawerOpen;
+
   @override
-  DrawerControllerState createState() => new DrawerControllerState();
+  DrawerControllerState createState() => DrawerControllerState();
 }
 
 /// State for a [DrawerController].
@@ -191,7 +348,12 @@ class DrawerControllerState extends State<DrawerController> with SingleTickerPro
   @override
   void initState() {
     super.initState();
-    _controller = new AnimationController(duration: _kBaseSettleDuration, vsync: this)
+    _controller = AnimationController(
+      value: widget.isDrawerOpen ? 1.0 : 0.0,
+      duration: _kBaseSettleDuration,
+      vsync: this,
+    );
+    _controller
       ..addListener(_animationChanged)
       ..addStatusListener(_animationStatusChanged);
   }
@@ -203,21 +365,46 @@ class DrawerControllerState extends State<DrawerController> with SingleTickerPro
     super.dispose();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scrimColorTween = _buildScrimColorTween();
+  }
+
+  @override
+  void didUpdateWidget(DrawerController oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.scrimColor != oldWidget.scrimColor) {
+      _scrimColorTween = _buildScrimColorTween();
+    }
+    if (widget.isDrawerOpen != oldWidget.isDrawerOpen) {
+      switch(_controller.status) {
+        case AnimationStatus.completed:
+        case AnimationStatus.dismissed:
+          _controller.value = widget.isDrawerOpen ? 1.0 : 0.0;
+          break;
+        case AnimationStatus.forward:
+        case AnimationStatus.reverse:
+          break;
+      }
+    }
+  }
+
   void _animationChanged() {
     setState(() {
       // The animation controller's state is our build state, and it changed already.
     });
   }
 
-  LocalHistoryEntry _historyEntry;
-  final FocusScopeNode _focusScopeNode = new FocusScopeNode();
+  LocalHistoryEntry? _historyEntry;
+  final FocusScopeNode _focusScopeNode = FocusScopeNode();
 
   void _ensureHistoryEntry() {
     if (_historyEntry == null) {
-      final ModalRoute<dynamic> route = ModalRoute.of(context);
+      final ModalRoute<dynamic>? route = ModalRoute.of(context);
       if (route != null) {
-        _historyEntry = new LocalHistoryEntry(onRemove: _handleHistoryEntryRemoved);
-        route.addLocalHistoryEntry(_historyEntry);
+        _historyEntry = LocalHistoryEntry(onRemove: _handleHistoryEntryRemoved, impliesAppBarDismissal: false);
+        route.addLocalHistoryEntry(_historyEntry!);
         FocusScope.of(context).setFirstFocus(_focusScopeNode);
       }
     }
@@ -244,7 +431,7 @@ class DrawerControllerState extends State<DrawerController> with SingleTickerPro
     close();
   }
 
-  AnimationController _controller;
+  late AnimationController _controller;
 
   void _handleDragDown(DragDownDetails details) {
     _controller.stop();
@@ -252,8 +439,9 @@ class DrawerControllerState extends State<DrawerController> with SingleTickerPro
   }
 
   void _handleDragCancel() {
-    if (_controller.isDismissed || _controller.isAnimating)
+    if (_controller.isDismissed || _controller.isAnimating) {
       return;
+    }
     if (_controller.value < 0.5) {
       close();
     } else {
@@ -261,17 +449,20 @@ class DrawerControllerState extends State<DrawerController> with SingleTickerPro
     }
   }
 
-  final GlobalKey _drawerKey = new GlobalKey();
+  final GlobalKey _drawerKey = GlobalKey();
 
   double get _width {
-    final RenderBox box = _drawerKey.currentContext?.findRenderObject();
-    if (box != null)
+    final RenderBox? box = _drawerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box != null) {
       return box.size.width;
+    }
     return _kWidth; // drawer not being shown currently
   }
 
+  bool _previouslyOpened = false;
+
   void _move(DragUpdateDetails details) {
-    double delta = details.primaryDelta / _width;
+    double delta = details.primaryDelta! / _width;
     switch (widget.alignment) {
       case DrawerAlignment.start:
         break;
@@ -287,11 +478,18 @@ class DrawerControllerState extends State<DrawerController> with SingleTickerPro
         _controller.value += delta;
         break;
     }
+
+    final bool opened = _controller.value > 0.5;
+    if (opened != _previouslyOpened && widget.drawerCallback != null) {
+      widget.drawerCallback!(opened);
+    }
+    _previouslyOpened = opened;
   }
 
   void _settle(DragEndDetails details) {
-    if (_controller.isDismissed)
+    if (_controller.isDismissed) {
       return;
+    }
     if (details.velocity.pixelsPerSecond.dx.abs() >= _kMinFlingVelocity) {
       double visualVelocity = details.velocity.pixelsPerSecond.dx / _width;
       switch (widget.alignment) {
@@ -302,12 +500,14 @@ class DrawerControllerState extends State<DrawerController> with SingleTickerPro
           break;
       }
       switch (Directionality.of(context)) {
-      case TextDirection.rtl:
-        _controller.fling(velocity: -visualVelocity);
-        break;
-      case TextDirection.ltr:
-        _controller.fling(velocity: visualVelocity);
-        break;
+        case TextDirection.rtl:
+          _controller.fling(velocity: -visualVelocity);
+          widget.drawerCallback?.call(visualVelocity < 0.0);
+          break;
+        case TextDirection.ltr:
+          _controller.fling(velocity: visualVelocity);
+          widget.drawerCallback?.call(visualVelocity > 0.0);
+          break;
       }
     } else if (_controller.value < 0.5) {
       close();
@@ -320,16 +520,27 @@ class DrawerControllerState extends State<DrawerController> with SingleTickerPro
   ///
   /// Typically called by [ScaffoldState.openDrawer].
   void open() {
-    _controller.fling(velocity: 1.0);
+    _controller.fling();
+    widget.drawerCallback?.call(true);
   }
 
   /// Starts an animation to close the drawer.
   void close() {
     _controller.fling(velocity: -1.0);
+    widget.drawerCallback?.call(false);
   }
 
-  final ColorTween _color = new ColorTween(begin: Colors.transparent, end: Colors.black54);
-  final GlobalKey _gestureDetectorKey = new GlobalKey();
+  late ColorTween _scrimColorTween;
+  final GlobalKey _gestureDetectorKey = GlobalKey();
+
+  ColorTween _buildScrimColorTween() {
+    return ColorTween(
+      begin: Colors.transparent,
+      end: widget.scrimColor
+          ?? DrawerTheme.of(context).scrimColor
+          ?? Colors.black54,
+    );
+  }
 
   AlignmentDirectional get _drawerOuterAlignment {
     assert(widget.alignment != null);
@@ -339,7 +550,6 @@ class DrawerControllerState extends State<DrawerController> with SingleTickerPro
       case DrawerAlignment.end:
         return AlignmentDirectional.centerEnd;
     }
-    return null;
   }
 
   AlignmentDirectional get _drawerInnerAlignment {
@@ -350,66 +560,130 @@ class DrawerControllerState extends State<DrawerController> with SingleTickerPro
       case DrawerAlignment.end:
         return AlignmentDirectional.centerStart;
     }
-    return null;
   }
 
   Widget _buildDrawer(BuildContext context) {
+    final bool drawerIsStart = widget.alignment == DrawerAlignment.start;
+    final EdgeInsets padding = MediaQuery.of(context).padding;
+    final TextDirection textDirection = Directionality.of(context);
+    final bool isDesktop;
+    switch (Theme.of(context).platform) {
+      case TargetPlatform.android:
+      case TargetPlatform.iOS:
+      case TargetPlatform.fuchsia:
+        isDesktop = false;
+        break;
+      case TargetPlatform.macOS:
+      case TargetPlatform.linux:
+      case TargetPlatform.windows:
+        isDesktop = true;
+        break;
+    }
+
+    double? dragAreaWidth = widget.edgeDragWidth;
+    if (widget.edgeDragWidth == null) {
+      switch (textDirection) {
+        case TextDirection.ltr:
+          dragAreaWidth = _kEdgeDragWidth +
+            (drawerIsStart ? padding.left : padding.right);
+          break;
+        case TextDirection.rtl:
+          dragAreaWidth = _kEdgeDragWidth +
+            (drawerIsStart ? padding.right : padding.left);
+          break;
+      }
+    }
+
     if (_controller.status == AnimationStatus.dismissed) {
-      return new Align(
-        alignment: _drawerOuterAlignment,
-        child: new GestureDetector(
-          key: _gestureDetectorKey,
-          onHorizontalDragUpdate: _move,
-          onHorizontalDragEnd: _settle,
-          behavior: HitTestBehavior.translucent,
-          excludeFromSemantics: true,
-          child: new Container(width: _kEdgeDragWidth)
+      if (widget.enableOpenDragGesture && !isDesktop) {
+        return Align(
+          alignment: _drawerOuterAlignment,
+          child: GestureDetector(
+            key: _gestureDetectorKey,
+            onHorizontalDragUpdate: _move,
+            onHorizontalDragEnd: _settle,
+            behavior: HitTestBehavior.translucent,
+            excludeFromSemantics: true,
+            dragStartBehavior: widget.dragStartBehavior,
+            child: Container(width: dragAreaWidth),
+          ),
+        );
+      } else {
+        return const SizedBox.shrink();
+      }
+    } else {
+      final bool platformHasBackButton;
+      switch (Theme.of(context).platform) {
+        case TargetPlatform.android:
+          platformHasBackButton = true;
+          break;
+        case TargetPlatform.iOS:
+        case TargetPlatform.macOS:
+        case TargetPlatform.fuchsia:
+        case TargetPlatform.linux:
+        case TargetPlatform.windows:
+          platformHasBackButton = false;
+          break;
+      }
+      assert(platformHasBackButton != null);
+
+      final Widget child =  RepaintBoundary(
+        child: Stack(
+          children: <Widget>[
+            BlockSemantics(
+              child: ExcludeSemantics(
+                // On Android, the back button is used to dismiss a modal.
+                excluding: platformHasBackButton,
+                child: GestureDetector(
+                  onTap: close,
+                  child: Semantics(
+                    label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+                    child: Container( // The drawer's "scrim"
+                      color: _scrimColorTween.evaluate(_controller),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Align(
+              alignment: _drawerOuterAlignment,
+              child: Align(
+                alignment: _drawerInnerAlignment,
+                widthFactor: _controller.value,
+                child: RepaintBoundary(
+                  child: FocusScope(
+                    key: _drawerKey,
+                    node: _focusScopeNode,
+                    child: widget.child,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
-    } else {
-      return new GestureDetector(
+
+      if (isDesktop) {
+        return child;
+      }
+
+      return GestureDetector(
         key: _gestureDetectorKey,
         onHorizontalDragDown: _handleDragDown,
         onHorizontalDragUpdate: _move,
         onHorizontalDragEnd: _settle,
         onHorizontalDragCancel: _handleDragCancel,
         excludeFromSemantics: true,
-        child: new RepaintBoundary(
-          child: new Stack(
-            children: <Widget>[
-              new BlockSemantics(
-                child: new GestureDetector(
-                  // On Android, the back button is used to dismiss a modal.
-                  excludeFromSemantics: defaultTargetPlatform == TargetPlatform.android,
-                  onTap: close,
-                  child: new Container(
-                    color: _color.evaluate(_controller)
-                  ),
-                ),
-              ),
-              new Align(
-                alignment: _drawerOuterAlignment,
-                child: new Align(
-                  alignment: _drawerInnerAlignment,
-                  widthFactor: _controller.value,
-                  child: new RepaintBoundary(
-                    child: new FocusScope(
-                      key: _drawerKey,
-                      node: _focusScopeNode,
-                      child: widget.child
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        dragStartBehavior: widget.dragStartBehavior,
+        child: child,
       );
     }
   }
+
   @override
   Widget build(BuildContext context) {
-    return new ListTileTheme(
+    assert(debugCheckHasMaterialLocalizations(context));
+    return ListTileTheme.merge(
       style: ListTileStyle.drawer,
       child: _buildDrawer(context),
     );

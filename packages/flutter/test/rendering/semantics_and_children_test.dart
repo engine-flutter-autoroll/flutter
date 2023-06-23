@@ -1,11 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter_test/flutter_test.dart' show TestVSync;
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 import 'rendering_tester.dart';
 
@@ -18,9 +17,11 @@ int countSemanticsChildren(RenderObject object) {
 }
 
 void main() {
+  TestRenderingFlutterBinding.ensureInitialized();
+
   test('RenderOpacity and children and semantics', () {
-    final RenderOpacity box = new RenderOpacity(
-      child: new RenderParagraph(
+    final RenderOpacity box = RenderOpacity(
+      child: RenderParagraph(
         const TextSpan(),
         textDirection: TextDirection.ltr,
       ),
@@ -41,10 +42,10 @@ void main() {
   });
 
   test('RenderOpacity and children and semantics', () {
-    final AnimationController controller = new AnimationController(vsync: const TestVSync());
-    final RenderAnimatedOpacity box = new RenderAnimatedOpacity(
+    final AnimationController controller = AnimationController(vsync: const TestVSync());
+    final RenderAnimatedOpacity box = RenderAnimatedOpacity(
       opacity: controller,
-      child: new RenderParagraph(
+      child: RenderParagraph(
         const TextSpan(),
         textDirection: TextDirection.ltr,
       ),

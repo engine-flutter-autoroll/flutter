@@ -1,6 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+// Examples can assume:
+// class Cat { }
 
 /// A category with which to annotate a class, for documentation
 /// purposes.
@@ -13,19 +16,20 @@
 ///
 /// A class can have multiple categories.
 ///
-/// ## Sample code
+/// {@tool snippet}
 ///
 /// ```dart
 /// /// A copper coffee pot, as desired by Ben Turpin.
 /// /// ...documentation...
-/// @Category(const <String>['Pots', 'Coffee'])
-/// @Category(const <String>['Copper', 'Cookware'])
+/// @Category(<String>['Pots', 'Coffee'])
+/// @Category(<String>['Copper', 'Cookware'])
 /// @DocumentationIcon('https://example.com/images/coffee.png')
 /// @Summary('A proper cup of coffee is made in a proper copper coffee pot.')
 /// class CopperCoffeePot {
 ///   // ...code...
 /// }
 /// ```
+/// {@end-tool}
 ///
 /// See also:
 ///
@@ -50,17 +54,18 @@ class Category {
 ///
 /// Each class should only have one [DocumentationIcon].
 ///
-/// ## Sample code
+/// {@tool snippet}
 ///
 /// ```dart
 /// /// Utility class for beginning a dream-sharing sequence.
 /// /// ...documentation...
-/// @Category(const <String>['Military Technology', 'Experimental'])
+/// @Category(<String>['Military Technology', 'Experimental'])
 /// @DocumentationIcon('https://docs.example.org/icons/top.png')
 /// class DreamSharing {
 ///   // ...code...
 /// }
 /// ```
+/// {@end-tool}
 ///
 /// See also:
 ///
@@ -82,21 +87,22 @@ class DocumentationIcon {
 /// for this purpose, but on occasion the first paragraph is either too short
 /// or too long for use in isolation, without the remainder of the documentation.
 ///
-/// ## Sample code
+/// {@tool snippet}
 ///
 /// ```dart
 /// /// A famous cat.
 /// ///
 /// /// Instances of this class can hunt small animals.
 /// /// This cat has three legs.
-/// @Category(const <String>['Animals', 'Cats'])
-/// @Category(const <String>['Cute', 'Pets'])
+/// @Category(<String>['Animals', 'Cats'])
+/// @Category(<String>['Cute', 'Pets'])
 /// @DocumentationIcon('https://www.examples.net/docs/images/icons/pillar.jpeg')
 /// @Summary('A famous three-legged cat.')
 /// class Pillar extends Cat {
 ///   // ...code...
 /// }
 /// ```
+/// {@end-tool}
 ///
 /// See also:
 ///

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@ import 'package:manual_tests/overlay_geometry.dart' as overlay_geometry;
 
 void main() {
   testWidgets('Overlay geometry smoke test', (WidgetTester tester) async {
-    await tester.pumpWidget(new MaterialApp(home: new overlay_geometry.OverlayGeometryApp()));
+    await tester.pumpWidget(const MaterialApp(home: overlay_geometry.OverlayGeometryApp()));
     expect(find.byType(overlay_geometry.Marker), findsNothing);
     await tester.tap(find.text('Card 3'));
     await tester.pump();
