@@ -1,32 +1,36 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter/gestures.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('onTap detection with canceled pointer and a drag listener', (WidgetTester tester) async {
+  testWidgets('onTap detection with canceled pointer and a drag listener', (
+    WidgetTester tester,
+  ) async {
     int detector1TapCount = 0;
     int detector2TapCount = 0;
 
-    final Widget widget = new GestureDetector(
-      child: new Column(
-        mainAxisAlignment: MainAxisAlignment.start,
+    final Widget widget = GestureDetector(
+      child: Column(
         children: <Widget>[
-          new GestureDetector(
-            onTap: () { detector1TapCount += 1; },
+          GestureDetector(
+            onTap: () {
+              detector1TapCount += 1;
+            },
             behavior: HitTestBehavior.opaque,
             child: const SizedBox(width: 200.0, height: 200.0),
           ),
-          new GestureDetector(
-            onTap: () { detector2TapCount += 1; },
+          GestureDetector(
+            onTap: () {
+              detector2TapCount += 1;
+            },
             behavior: HitTestBehavior.opaque,
-            child: const SizedBox(width: 200.0, height: 200.0)
-          )
+            child: const SizedBox(width: 200.0, height: 200.0),
+          ),
         ],
-      )
+      ),
     );
 
     await tester.pumpWidget(widget);

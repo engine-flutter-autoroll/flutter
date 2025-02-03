@@ -1,15 +1,41 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
+import 'dart:ui' show FlutterView;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_test/flutter_test.dart';
 
-const Size _kTestViewSize = Size(800.0, 600.0);
+class ScheduledFrameTrackingPlatformDispatcher extends TestPlatformDispatcher {
+  ScheduledFrameTrackingPlatformDispatcher({required super.platformDispatcher});
+
+  int _scheduledFrameCount = 0;
+  int get scheduledFrameCount => _scheduledFrameCount;
+
+  void resetScheduledFrameCount() {
+    _scheduledFrameCount = 0;
+  }
+
+  @override
+  void scheduleFrame() {
+    _scheduledFrameCount++;
+    super.scheduleFrame();
+  }
+}
+
+class ScheduledFrameTrackingBindings extends AutomatedTestWidgetsFlutterBinding {
+  late final ScheduledFrameTrackingPlatformDispatcher _platformDispatcher =
+      ScheduledFrameTrackingPlatformDispatcher(platformDispatcher: super.platformDispatcher);
+
+  @override
+  ScheduledFrameTrackingPlatformDispatcher get platformDispatcher => _platformDispatcher;
+}
 
 class OffscreenRenderView extends RenderView {
-  OffscreenRenderView() : super(configuration: const ViewConfiguration(size: _kTestViewSize));
+  OffscreenRenderView({required super.view})
+    : super(configuration: TestViewConfiguration.fromView(view: view));
 
   @override
   void compositeFrame() {
@@ -18,27 +44,29 @@ class OffscreenRenderView extends RenderView {
 }
 
 class OffscreenWidgetTree {
-  OffscreenWidgetTree() {
+  OffscreenWidgetTree(this.view) {
     renderView.attach(pipelineOwner);
-    renderView.scheduleInitialFrame();
+    renderView.prepareInitialFrame();
+    pipelineOwner.requestVisualUpdate();
   }
 
-  final RenderView renderView = new OffscreenRenderView();
-  final BuildOwner buildOwner = new BuildOwner();
-  final PipelineOwner pipelineOwner = new PipelineOwner();
-  RenderObjectToWidgetElement<RenderBox> root;
+  final FlutterView view;
+  late final RenderView renderView = OffscreenRenderView(view: view);
+  final BuildOwner buildOwner = BuildOwner(focusManager: FocusManager());
+  final PipelineOwner pipelineOwner = PipelineOwner();
+  RenderObjectToWidgetElement<RenderBox>? root;
 
-  void pumpWidget(Widget app) {
-    root = new RenderObjectToWidgetAdapter<RenderBox>(
+  void pumpWidget(Widget? app) {
+    root = RenderObjectToWidgetAdapter<RenderBox>(
       container: renderView,
       debugShortDescription: '[root]',
-      child: app
+      child: app,
     ).attachToRenderTree(buildOwner, root);
     pumpFrame();
   }
 
   void pumpFrame() {
-    buildOwner.buildScope(root);
+    buildOwner.buildScope(root!);
     pipelineOwner.flushLayout();
     pipelineOwner.flushCompositingBits();
     pipelineOwner.flushPaint();
@@ -46,7 +74,6 @@ class OffscreenWidgetTree {
     pipelineOwner.flushSemantics();
     buildOwner.finalizeTree();
   }
-
 }
 
 class Counter {
@@ -54,19 +81,20 @@ class Counter {
 }
 
 class Trigger {
-  VoidCallback callback;
+  VoidCallback? callback;
   void fire() {
-    if (callback != null)
-      callback();
+    callback?.call();
   }
 }
 
 class TriggerableWidget extends StatefulWidget {
-  const TriggerableWidget({ this.trigger, this.counter });
+  const TriggerableWidget({super.key, required this.trigger, required this.counter});
+
   final Trigger trigger;
   final Counter counter;
+
   @override
-  TriggerableState createState() => new TriggerableState();
+  TriggerableState createState() => TriggerableState();
 }
 
 class TriggerableState extends State<TriggerableWidget> {
@@ -92,22 +120,18 @@ class TriggerableState extends State<TriggerableWidget> {
   @override
   Widget build(BuildContext context) {
     widget.counter.count++;
-    return new Text('Bang $_count!', textDirection: TextDirection.ltr);
+    return Text('Bang $_count!', textDirection: TextDirection.ltr);
   }
 }
 
 class TestFocusable extends StatefulWidget {
-  const TestFocusable({
-    Key key,
-    this.focusNode,
-    this.autofocus = true,
-  }) : super(key: key);
+  const TestFocusable({super.key, required this.focusNode, this.autofocus = true});
 
   final bool autofocus;
   final FocusNode focusNode;
 
   @override
-  TestFocusableState createState() => new TestFocusableState();
+  TestFocusableState createState() => TestFocusableState();
 }
 
 class TestFocusableState extends State<TestFocusable> {
@@ -129,22 +153,39 @@ class TestFocusableState extends State<TestFocusable> {
 }
 
 void main() {
+  // Override the bindings for this test suite so that we can track the number
+  // of times a frame has been scheduled.
+  ScheduledFrameTrackingBindings();
+
+  testWidgets('RenderObjectToWidgetAdapter.attachToRenderTree does not schedule frame', (
+    WidgetTester tester,
+  ) async {
+    expect(WidgetsBinding.instance, isA<ScheduledFrameTrackingBindings>());
+    final ScheduledFrameTrackingPlatformDispatcher platformDispatcher =
+        tester.platformDispatcher as ScheduledFrameTrackingPlatformDispatcher;
+    platformDispatcher.resetScheduledFrameCount();
+    expect(platformDispatcher.scheduledFrameCount, isZero);
+    final OffscreenWidgetTree tree = OffscreenWidgetTree(tester.view);
+    tree.pumpWidget(const SizedBox.shrink());
+    expect(platformDispatcher.scheduledFrameCount, isZero);
+  });
+
   testWidgets('no crosstalk between widget build owners', (WidgetTester tester) async {
-    final Trigger trigger1 = new Trigger();
-    final Counter counter1 = new Counter();
-    final Trigger trigger2 = new Trigger();
-    final Counter counter2 = new Counter();
-    final OffscreenWidgetTree tree = new OffscreenWidgetTree();
+    final Trigger trigger1 = Trigger();
+    final Counter counter1 = Counter();
+    final Trigger trigger2 = Trigger();
+    final Counter counter2 = Counter();
+    final OffscreenWidgetTree tree = OffscreenWidgetTree(tester.view);
     // Both counts should start at zero
     expect(counter1.count, equals(0));
     expect(counter2.count, equals(0));
     // Lay out the "onscreen" in the default test binding
-    await tester.pumpWidget(new TriggerableWidget(trigger: trigger1, counter: counter1));
+    await tester.pumpWidget(TriggerableWidget(trigger: trigger1, counter: counter1));
     // Only the "onscreen" widget should have built
     expect(counter1.count, equals(1));
     expect(counter2.count, equals(0));
     // Lay out the "offscreen" in a separate tree
-    tree.pumpWidget(new TriggerableWidget(trigger: trigger2, counter: counter2));
+    tree.pumpWidget(TriggerableWidget(trigger: trigger2, counter: counter2));
     // Now both widgets should have built
     expect(counter1.count, equals(1));
     expect(counter2.count, equals(1));
@@ -180,19 +221,14 @@ void main() {
   });
 
   testWidgets('no crosstalk between focus nodes', (WidgetTester tester) async {
-    final OffscreenWidgetTree tree = new OffscreenWidgetTree();
-    final FocusNode onscreenFocus = new FocusNode();
-    final FocusNode offscreenFocus = new FocusNode();
-    await tester.pumpWidget(
-      new TestFocusable(
-        focusNode: onscreenFocus,
-      ),
-    );
-    tree.pumpWidget(
-      new TestFocusable(
-        focusNode: offscreenFocus,
-      ),
-    );
+    final OffscreenWidgetTree tree = OffscreenWidgetTree(tester.view);
+    final FocusNode onscreenFocus = FocusNode();
+    addTearDown(onscreenFocus.dispose);
+    final FocusNode offscreenFocus = FocusNode();
+    addTearDown(offscreenFocus.dispose);
+
+    await tester.pumpWidget(TestFocusable(focusNode: onscreenFocus));
+    tree.pumpWidget(TestFocusable(focusNode: offscreenFocus));
 
     // Autofocus is delayed one frame.
     await tester.pump();
@@ -202,4 +238,42 @@ void main() {
     expect(offscreenFocus.hasFocus, isTrue);
   });
 
+  testWidgets('able to tear down offscreen tree', (WidgetTester tester) async {
+    final OffscreenWidgetTree tree = OffscreenWidgetTree(tester.view);
+    final List<WidgetState> states = <WidgetState>[];
+    tree.pumpWidget(SizedBox(child: TestStates(states: states)));
+    expect(states, <WidgetState>[WidgetState.initialized]);
+    expect(tree.renderView.child, isNotNull);
+    tree.pumpWidget(null); // The root node should be allowed to have no child.
+    expect(states, <WidgetState>[WidgetState.initialized, WidgetState.disposed]);
+    expect(tree.renderView.child, isNull);
+  });
+}
+
+enum WidgetState { initialized, disposed }
+
+class TestStates extends StatefulWidget {
+  const TestStates({super.key, required this.states});
+
+  final List<WidgetState> states;
+
+  @override
+  TestStatesState createState() => TestStatesState();
+}
+
+class TestStatesState extends State<TestStates> {
+  @override
+  void initState() {
+    super.initState();
+    widget.states.add(WidgetState.initialized);
+  }
+
+  @override
+  void dispose() {
+    widget.states.add(WidgetState.disposed);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Container();
 }

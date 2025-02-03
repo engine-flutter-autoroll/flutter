@@ -1,24 +1,29 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/widgets.dart';
 
 class TestWidget extends StatefulWidget {
-  const TestWidget({ this.child, this.persistentState, this.syncedState });
+  const TestWidget({
+    super.key,
+    required this.child,
+    required this.persistentState,
+    required this.syncedState,
+  });
 
   final Widget child;
   final int persistentState;
   final int syncedState;
 
   @override
-  TestWidgetState createState() => new TestWidgetState();
+  TestWidgetState createState() => TestWidgetState();
 }
 
 class TestWidgetState extends State<TestWidget> {
-  int persistentState;
-  int syncedState;
+  late int persistentState;
+  late int syncedState;
   int updates = 0;
 
   @override
@@ -42,17 +47,15 @@ class TestWidgetState extends State<TestWidget> {
 }
 
 void main() {
-
   testWidgets('no change', (WidgetTester tester) async {
     await tester.pumpWidget(
-      new Container(
-        child: new Container(
-          child: new TestWidget(
-            persistentState: 1,
-            child: new Container()
-          )
-        )
-      )
+      ColoredBox(
+        color: Colors.blue,
+        child: ColoredBox(
+          color: Colors.blue,
+          child: TestWidget(persistentState: 1, syncedState: 0, child: Container()),
+        ),
+      ),
     );
 
     final TestWidgetState state = tester.state(find.byType(TestWidget));
@@ -61,32 +64,30 @@ void main() {
     expect(state.updates, equals(0));
 
     await tester.pumpWidget(
-      new Container(
-        child: new Container(
-          child: new TestWidget(
-            persistentState: 2,
-            child: new Container()
-          )
-        )
-      )
+      ColoredBox(
+        color: Colors.blue,
+        child: ColoredBox(
+          color: Colors.blue,
+          child: TestWidget(persistentState: 2, syncedState: 0, child: Container()),
+        ),
+      ),
     );
 
     expect(state.persistentState, equals(1));
     expect(state.updates, equals(1));
 
-    await tester.pumpWidget(new Container());
+    await tester.pumpWidget(Container());
   });
 
   testWidgets('remove one', (WidgetTester tester) async {
     await tester.pumpWidget(
-      new Container(
-        child: new Container(
-          child: new TestWidget(
-            persistentState: 10,
-            child: new Container()
-          )
-        )
-      )
+      ColoredBox(
+        color: Colors.blue,
+        child: ColoredBox(
+          color: Colors.blue,
+          child: TestWidget(persistentState: 10, syncedState: 0, child: Container()),
+        ),
+      ),
     );
 
     TestWidgetState state = tester.state(find.byType(TestWidget));
@@ -95,12 +96,10 @@ void main() {
     expect(state.updates, equals(0));
 
     await tester.pumpWidget(
-      new Container(
-        child: new TestWidget(
-          persistentState: 11,
-          child: new Container()
-        )
-      )
+      ColoredBox(
+        color: Colors.green,
+        child: TestWidget(persistentState: 11, syncedState: 0, child: Container()),
+      ),
     );
 
     state = tester.state(find.byType(TestWidget));
@@ -108,30 +107,27 @@ void main() {
     expect(state.persistentState, equals(11));
     expect(state.updates, equals(0));
 
-    await tester.pumpWidget(new Container());
+    await tester.pumpWidget(Container());
   });
 
   testWidgets('swap instances around', (WidgetTester tester) async {
-    const Widget a = TestWidget(persistentState: 0x61, syncedState: 0x41, child: Text('apple', textDirection: TextDirection.ltr));
-    const Widget b = TestWidget(persistentState: 0x62, syncedState: 0x42, child: Text('banana', textDirection: TextDirection.ltr));
-    await tester.pumpWidget(new Column());
+    const Widget a = TestWidget(
+      persistentState: 0x61,
+      syncedState: 0x41,
+      child: Text('apple', textDirection: TextDirection.ltr),
+    );
+    const Widget b = TestWidget(
+      persistentState: 0x62,
+      syncedState: 0x42,
+      child: Text('banana', textDirection: TextDirection.ltr),
+    );
+    await tester.pumpWidget(const Column());
 
-    final GlobalKey keyA = new GlobalKey();
-    final GlobalKey keyB = new GlobalKey();
+    final GlobalKey keyA = GlobalKey();
+    final GlobalKey keyB = GlobalKey();
 
     await tester.pumpWidget(
-      new Column(
-        children: <Widget>[
-          new Container(
-            key: keyA,
-            child: a
-          ),
-          new Container(
-            key: keyB,
-            child: b
-          )
-        ]
-      )
+      Column(children: <Widget>[Container(key: keyA, child: a), Container(key: keyB, child: b)]),
     );
 
     TestWidgetState first, second;
@@ -147,18 +143,7 @@ void main() {
     expect(second.syncedState, equals(0x42));
 
     await tester.pumpWidget(
-      new Column(
-        children: <Widget>[
-          new Container(
-            key: keyA,
-            child: a
-          ),
-          new Container(
-            key: keyB,
-            child: b
-          )
-        ]
-      )
+      Column(children: <Widget>[Container(key: keyA, child: a), Container(key: keyB, child: b)]),
     );
 
     first = tester.state(find.byWidget(a));
@@ -176,18 +161,7 @@ void main() {
     // since they are both "old" nodes, they shouldn't sync with each other even though they look alike
 
     await tester.pumpWidget(
-      new Column(
-        children: <Widget>[
-          new Container(
-            key: keyA,
-            child: b
-          ),
-          new Container(
-            key: keyB,
-            child: a
-          )
-        ]
-      )
+      Column(children: <Widget>[Container(key: keyA, child: b), Container(key: keyB, child: a)]),
     );
 
     first = tester.state(find.byWidget(b));

@@ -1,143 +1,135 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-import 'dart:async';
-
-import 'package:args/args.dart';
 
 import '../base/common.dart';
 import '../base/file_system.dart';
 import '../base/io.dart';
 import '../base/logger.dart';
-import '../base/terminal.dart';
-import '../base/utils.dart';
-import '../cache.dart';
 import '../dart/analysis.dart';
-import '../dart/sdk.dart' as sdk;
-import '../globals.dart';
 import 'analyze_base.dart';
 
 class AnalyzeContinuously extends AnalyzeBase {
-  AnalyzeContinuously(ArgResults argResults, this.repoRoots, this.repoPackages) : super(argResults);
+  AnalyzeContinuously(
+    super.argResults,
+    List<Directory> repoPackages, {
+    required super.fileSystem,
+    required super.logger,
+    required super.terminal,
+    required super.platform,
+    required super.processManager,
+    required super.artifacts,
+    required super.suppressAnalytics,
+  }) : super(repoPackages: repoPackages);
 
-  final List<String> repoRoots;
-  final List<Directory> repoPackages;
-
-  String analysisTarget;
+  String? analysisTarget;
   bool firstAnalysis = true;
-  Set<String> analyzedPaths = new Set<String>();
+  Set<String> analyzedPaths = <String>{};
   Map<String, List<AnalysisError>> analysisErrors = <String, List<AnalysisError>>{};
-  Stopwatch analysisTimer;
+  final Stopwatch analysisTimer = Stopwatch();
   int lastErrorCount = 0;
-  Status analysisStatus;
+  Status? analysisStatus;
 
   @override
-  Future<Null> analyze() async {
+  Future<void> analyze() async {
     List<String> directories;
 
-    if (argResults['dartdocs'])
-      throwToolExit('The --dartdocs option is currently not supported when using --watch.');
-
-    if (argResults['flutter-repo']) {
-      final PackageDependencyTracker dependencies = new PackageDependencyTracker();
+    if (isFlutterRepo) {
+      final PackageDependencyTracker dependencies = PackageDependencyTracker();
       dependencies.checkForConflictingDependencies(repoPackages, dependencies);
 
-      directories = repoRoots;
+      directories = <String>[flutterRoot];
       analysisTarget = 'Flutter repository';
 
-      printTrace('Analyzing Flutter repository:');
-      for (String projectPath in repoRoots) {
-        printTrace('  ${fs.path.relative(projectPath)}');
-      }
+      logger.printTrace('Analyzing Flutter repository:');
     } else {
-      directories = <String>[fs.currentDirectory.path];
-      analysisTarget = fs.currentDirectory.path;
+      directories = <String>[fileSystem.currentDirectory.path];
+      analysisTarget = fileSystem.currentDirectory.path;
     }
 
-    final String sdkPath = argResults['dart-sdk'] ?? sdk.dartSdkPath;
-
-    final AnalysisServer server = new AnalysisServer(sdkPath, directories);
+    final AnalysisServer server = AnalysisServer(
+      sdkPath,
+      directories,
+      fileSystem: fileSystem,
+      logger: logger,
+      platform: platform,
+      processManager: processManager,
+      terminal: terminal,
+      protocolTrafficLog: protocolTrafficLog,
+      suppressAnalytics: suppressAnalytics,
+    );
     server.onAnalyzing.listen((bool isAnalyzing) => _handleAnalysisStatus(server, isAnalyzing));
     server.onErrors.listen(_handleAnalysisErrors);
 
-    Cache.releaseLockEarly();
-
     await server.start();
-    final int exitCode = await server.onExit;
+    final int? exitCode = await server.onExit;
 
     final String message = 'Analysis server exited with code $exitCode.';
-    if (exitCode != 0)
+    if (exitCode != 0) {
       throwToolExit(message, exitCode: exitCode);
-    printStatus(message);
+    }
+    logger.printStatus(message);
+
+    if (server.didServerErrorOccur) {
+      throwToolExit('Server error(s) occurred.');
+    }
   }
 
   void _handleAnalysisStatus(AnalysisServer server, bool isAnalyzing) {
     if (isAnalyzing) {
       analysisStatus?.cancel();
-      if (!firstAnalysis)
-        printStatus('\n');
+      if (!firstAnalysis) {
+        logger.printStatus('\n');
+      }
       analysisStatus = logger.startProgress('Analyzing $analysisTarget...');
       analyzedPaths.clear();
-      analysisTimer = new Stopwatch()..start();
+      analysisTimer.start();
     } else {
       analysisStatus?.stop();
+      analysisStatus = null;
       analysisTimer.stop();
 
       logger.printStatus(terminal.clearScreen(), newline: false);
 
       // Remove errors for deleted files, sort, and print errors.
-      final List<AnalysisError> errors = <AnalysisError>[];
-      for (String path in analysisErrors.keys.toList()) {
-        if (fs.isFileSync(path)) {
-          errors.addAll(analysisErrors[path]);
+      final List<AnalysisError> sortedErrors = <AnalysisError>[];
+      final List<String> pathsToRemove = <String>[];
+      analysisErrors.forEach((String path, List<AnalysisError> errors) {
+        if (fileSystem.isFileSync(path)) {
+          sortedErrors.addAll(errors);
         } else {
-          analysisErrors.remove(path);
+          pathsToRemove.add(path);
         }
+      });
+      analysisErrors.removeWhere((String path, _) => pathsToRemove.contains(path));
+
+      sortedErrors.sort();
+
+      for (final AnalysisError error in sortedErrors) {
+        logger.printStatus(error.toString());
+        logger.printTrace('error code: ${error.code}');
       }
 
-      errors.sort();
+      dumpErrors(sortedErrors.map<String>((AnalysisError error) => error.toLegacyString()));
 
-      for (AnalysisError error in errors) {
-        printStatus(error.toString());
-        if (error.code != null)
-          printTrace('error code: ${error.code}');
-      }
-
-      dumpErrors(errors.map<String>((AnalysisError error) => error.toLegacyString()));
-
-      // Print an analysis summary.
-      String errorsMessage;
-
-      int issueCount = errors.length;
+      final int issueCount = sortedErrors.length;
       final int issueDiff = issueCount - lastErrorCount;
       lastErrorCount = issueCount;
-
-      final int undocumentedCount = errors.where((AnalysisError issue) {
-        return issue.code == 'public_member_api_docs';
-      }).length;
-
-      if (firstAnalysis)
-        errorsMessage = '$issueCount ${pluralize('issue', issueCount)} found';
-      else if (issueDiff > 0)
-        errorsMessage = '$issueCount ${pluralize('issue', issueCount)} found ($issueDiff new)';
-      else if (issueDiff < 0)
-        errorsMessage = '$issueCount ${pluralize('issue', issueCount)} found (${-issueDiff} fixed)';
-      else if (issueCount != 0)
-        errorsMessage = '$issueCount ${pluralize('issue', issueCount)} found';
-      else
-        errorsMessage = 'no issues found';
-
-      final String files = '${analyzedPaths.length} ${pluralize('file', analyzedPaths.length)}';
       final String seconds = (analysisTimer.elapsedMilliseconds / 1000.0).toStringAsFixed(2);
-      printStatus('$errorsMessage • analyzed $files in $seconds seconds');
+      final String errorsMessage = AnalyzeBase.generateErrorsMessage(
+        issueCount: issueCount,
+        issueDiff: issueDiff,
+        files: analyzedPaths.length,
+        seconds: seconds,
+      );
+
+      logger.printStatus(errorsMessage);
 
       if (firstAnalysis && isBenchmarking) {
-        // We don't want to return a failing exit code based on missing documentation.
-        issueCount -= undocumentedCount;
-
-        writeBenchmark(analysisTimer, issueCount, undocumentedCount);
-        server.dispose().whenComplete(() { exit(issueCount > 0 ? 1 : 0); });
+        writeBenchmark(analysisTimer, issueCount);
+        server.dispose().whenComplete(() {
+          exit(issueCount > 0 ? 1 : 0);
+        });
       }
 
       firstAnalysis = false;

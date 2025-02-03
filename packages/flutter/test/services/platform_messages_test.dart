@@ -1,27 +1,37 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:typed_data';
+@TestOn('!chrome')
+library;
 
 import 'package:flutter/services.dart';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('Mock binary message handler control test', () async {
-    final List<ByteData> log = <ByteData>[];
+    final List<ByteData?> log = <ByteData>[];
 
-    BinaryMessages.setMockMessageHandler('test1', (ByteData message) async {
-      log.add(message);
-    });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMessageHandler(
+      'test1',
+      (ByteData? message) async {
+        log.add(message);
+        return null;
+      },
+    );
 
-    final ByteData message = new ByteData(2)..setUint16(0, 0xABCD);
-    await BinaryMessages.send('test1', message);
+    final ByteData message = ByteData(2)..setUint16(0, 0xABCD);
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.send('test1', message);
     expect(log, equals(<ByteData>[message]));
     log.clear();
 
-    BinaryMessages.setMockMessageHandler('test1', null);
-    await BinaryMessages.send('test1', message);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMessageHandler(
+      'test1',
+      null,
+    );
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.send('test1', message);
     expect(log, isEmpty);
   });
 }

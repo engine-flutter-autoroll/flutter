@@ -1,6 +1,6 @@
 # Examples of Flutter's layered architecture
 
-This directory contains a number of self-contained examples that illustrate
+This directory contains several self-contained examples that illustrate
 Flutter's layered architecture.
 
  * [*raw/*](raw/) These examples show how to program against the lowest layer of
@@ -21,7 +21,7 @@ Flutter's layered architecture.
 To run each example, specify the demo file on the `flutter run`
 command line, for example:
 
-```
+```sh
 flutter run raw/spinning_square.dart
 flutter run rendering/spinning_square.dart
 flutter run widgets/spinning_square.dart

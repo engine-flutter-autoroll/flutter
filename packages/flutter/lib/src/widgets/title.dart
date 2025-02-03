@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,22 +10,15 @@ import 'framework.dart';
 
 /// A widget that describes this app in the operating system.
 class Title extends StatelessWidget {
-  /// Creates a widget that describes this app to the operating system.
+  /// Creates a widget that describes this app to the Android operating system.
   ///
   /// [title] will default to the empty string if not supplied.
   /// [color] must be an opaque color (i.e. color.alpha must be 255 (0xFF)).
   /// [color] and [child] are required arguments.
-  Title({
-    Key key,
-    this.title = '',
-    @required this.color,
-    @required this.child,
-  }) : assert(title != null),
-       assert(color != null && color.alpha == 0xFF),
-       super(key: key);
+  Title({super.key, this.title = '', required this.color, required this.child})
+    : assert(color.alpha == 0xFF);
 
   /// A one-line description of this app for use in the window manager.
-  /// Must not be null.
   final String title;
 
   /// A color that the window manager should use to identify this app. Must be
@@ -35,16 +28,13 @@ class Title extends StatelessWidget {
 
   /// The widget below this widget in the tree.
   ///
-  /// {@macro flutter.widgets.child}
+  /// {@macro flutter.widgets.ProxyWidget.child}
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
     SystemChrome.setApplicationSwitcherDescription(
-      new ApplicationSwitcherDescription(
-        label: title,
-        primaryColor: color.value,
-      )
+      ApplicationSwitcherDescription(label: title, primaryColor: color.value),
     );
     return child;
   }
@@ -52,7 +42,7 @@ class Title extends StatelessWidget {
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
-    properties.add(new StringProperty('title', title, defaultValue: ''));
-    properties.add(new DiagnosticsProperty<Color>('color', color, defaultValue: null));
+    properties.add(StringProperty('title', title, defaultValue: ''));
+    properties.add(ColorProperty('color', color, defaultValue: null));
   }
 }

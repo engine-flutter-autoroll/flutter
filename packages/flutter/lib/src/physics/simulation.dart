@@ -1,8 +1,12 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'package:flutter/foundation.dart';
+
 import 'tolerance.dart';
+
+export 'tolerance.dart' show Tolerance;
 
 /// The base class for all simulations.
 ///
@@ -31,7 +35,7 @@ import 'tolerance.dart';
 /// related objects.
 abstract class Simulation {
   /// Initializes the [tolerance] field for subclasses.
-  Simulation({ this.tolerance = Tolerance.defaultTolerance });
+  Simulation({this.tolerance = Tolerance.defaultTolerance});
 
   /// The position of the object in the simulation at the given time.
   double x(double time);
@@ -52,5 +56,5 @@ abstract class Simulation {
   Tolerance tolerance;
 
   @override
-  String toString() => '$runtimeType';
+  String toString() => objectRuntimeType(this, 'Simulation');
 }

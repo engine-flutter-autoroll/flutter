@@ -1,10 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/// @docImport 'button_style.dart';
+/// @docImport 'ink_decoration.dart';
+/// @docImport 'ink_highlight.dart';
+/// @docImport 'ink_ripple.dart';
+/// @docImport 'theme.dart';
+library;
+
 import 'dart:math' as math;
 
-import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import 'ink_well.dart';
@@ -16,17 +22,27 @@ const Duration _kSplashFadeDuration = Duration(milliseconds: 200);
 const double _kSplashInitialSize = 0.0; // logical pixels
 const double _kSplashConfirmedVelocity = 1.0; // logical pixels per millisecond
 
-RectCallback _getClipCallback(RenderBox referenceBox, bool containedInkWell, RectCallback rectCallback) {
+RectCallback? _getClipCallback(
+  RenderBox referenceBox,
+  bool containedInkWell,
+  RectCallback? rectCallback,
+) {
   if (rectCallback != null) {
     assert(containedInkWell);
     return rectCallback;
   }
-  if (containedInkWell)
+  if (containedInkWell) {
     return () => Offset.zero & referenceBox.size;
+  }
   return null;
 }
 
-double _getTargetRadius(RenderBox referenceBox, bool containedInkWell, RectCallback rectCallback, Offset position) {
+double _getTargetRadius(
+  RenderBox referenceBox,
+  bool containedInkWell,
+  RectCallback? rectCallback,
+  Offset position,
+) {
   if (containedInkWell) {
     final Size size = rectCallback != null ? rectCallback().size : referenceBox.size;
     return _getSplashRadiusForPositionInSize(size, position);
@@ -47,17 +63,19 @@ class _InkSplashFactory extends InteractiveInkFeatureFactory {
 
   @override
   InteractiveInkFeature create({
-    @required MaterialInkController controller,
-    @required RenderBox referenceBox,
-    @required Offset position,
-    @required Color color,
+    required MaterialInkController controller,
+    required RenderBox referenceBox,
+    required Offset position,
+    required Color color,
+    required TextDirection textDirection,
     bool containedInkWell = false,
-    RectCallback rectCallback,
-    BorderRadius borderRadius,
-    double radius,
-    VoidCallback onRemoved,
+    RectCallback? rectCallback,
+    BorderRadius? borderRadius,
+    ShapeBorder? customBorder,
+    double? radius,
+    VoidCallback? onRemoved,
   }) {
-    return new InkSplash(
+    return InkSplash(
       controller: controller,
       referenceBox: referenceBox,
       position: position,
@@ -65,8 +83,10 @@ class _InkSplashFactory extends InteractiveInkFeatureFactory {
       containedInkWell: containedInkWell,
       rectCallback: rectCallback,
       borderRadius: borderRadius,
+      customBorder: customBorder,
       radius: radius,
       onRemoved: onRemoved,
+      textDirection: textDirection,
     );
   }
 }
@@ -91,11 +111,9 @@ class _InkSplashFactory extends InteractiveInkFeatureFactory {
 ///  * [Material], which is the widget on which the ink splash is painted.
 ///  * [InkHighlight], which is an ink feature that emphasizes a part of a
 ///    [Material].
+///  * [Ink], a convenience widget for drawing images and other decorations on
+///    Material widgets.
 class InkSplash extends InteractiveInkFeature {
-  /// Used to specify this type of ink splash for an [InkWell], [InkResponse]
-  /// or material [Theme].
-  static const InteractiveInkFeatureFactory splashFactory = _InkSplashFactory();
-
   /// Begin a splash, centered at position relative to [referenceBox].
   ///
   /// The [controller] argument is typically obtained via
@@ -112,59 +130,65 @@ class InkSplash extends InteractiveInkFeature {
   ///
   /// When the splash is removed, `onRemoved` will be called.
   InkSplash({
-    @required MaterialInkController controller,
-    @required RenderBox referenceBox,
-    Offset position,
-    Color color,
+    required MaterialInkController controller,
+    required super.referenceBox,
+    required TextDirection textDirection,
+    Offset? position,
+    required Color color,
     bool containedInkWell = false,
-    RectCallback rectCallback,
-    BorderRadius borderRadius,
-    double radius,
-    VoidCallback onRemoved,
+    RectCallback? rectCallback,
+    BorderRadius? borderRadius,
+    super.customBorder,
+    double? radius,
+    super.onRemoved,
   }) : _position = position,
        _borderRadius = borderRadius ?? BorderRadius.zero,
-       _targetRadius = radius ?? _getTargetRadius(referenceBox, containedInkWell, rectCallback, position),
+       _targetRadius =
+           radius ?? _getTargetRadius(referenceBox, containedInkWell, rectCallback, position!),
        _clipCallback = _getClipCallback(referenceBox, containedInkWell, rectCallback),
        _repositionToReferenceBox = !containedInkWell,
-       super(controller: controller, referenceBox: referenceBox, color: color, onRemoved: onRemoved) {
-    assert(_borderRadius != null);
-    _radiusController = new AnimationController(duration: _kUnconfirmedSplashDuration, vsync: controller.vsync)
-      ..addListener(controller.markNeedsPaint)
-      ..forward();
-    _radius = new Tween<double>(
-      begin: _kSplashInitialSize,
-      end: _targetRadius
-    ).animate(_radiusController);
-    _alphaController = new AnimationController(duration: _kSplashFadeDuration, vsync: controller.vsync)
-      ..addListener(controller.markNeedsPaint)
-      ..addStatusListener(_handleAlphaStatusChanged);
-    _alpha = new IntTween(
-      begin: color.alpha,
-      end: 0
-    ).animate(_alphaController);
+       _textDirection = textDirection,
+       super(controller: controller, color: color) {
+    _radiusController =
+        AnimationController(duration: _kUnconfirmedSplashDuration, vsync: controller.vsync)
+          ..addListener(controller.markNeedsPaint)
+          ..forward();
+    _radius = _radiusController.drive(
+      Tween<double>(begin: _kSplashInitialSize, end: _targetRadius),
+    );
+    _alphaController =
+        AnimationController(duration: _kSplashFadeDuration, vsync: controller.vsync)
+          ..addListener(controller.markNeedsPaint)
+          ..addStatusListener(_handleAlphaStatusChanged);
+    _alpha = _alphaController!.drive(IntTween(begin: color.alpha, end: 0));
 
     controller.addInkFeature(this);
   }
 
-  final Offset _position;
+  final Offset? _position;
   final BorderRadius _borderRadius;
   final double _targetRadius;
-  final RectCallback _clipCallback;
+  final RectCallback? _clipCallback;
   final bool _repositionToReferenceBox;
+  final TextDirection _textDirection;
 
-  Animation<double> _radius;
-  AnimationController _radiusController;
+  late Animation<double> _radius;
+  late AnimationController _radiusController;
 
-  Animation<int> _alpha;
-  AnimationController _alphaController;
+  late Animation<int> _alpha;
+  AnimationController? _alphaController;
+
+  /// Used to specify this type of ink splash for an [InkWell], [InkResponse],
+  /// material [Theme], or [ButtonStyle].
+  static const InteractiveInkFeatureFactory splashFactory = _InkSplashFactory();
 
   @override
   void confirm() {
     final int duration = (_targetRadius / _kSplashConfirmedVelocity).floor();
     _radiusController
-      ..duration = new Duration(milliseconds: duration)
+      ..duration = Duration(milliseconds: duration)
       ..forward();
-    _alphaController.forward();
+    _alphaController!.forward();
   }
 
   @override
@@ -173,61 +197,36 @@ class InkSplash extends InteractiveInkFeature {
   }
 
   void _handleAlphaStatusChanged(AnimationStatus status) {
-    if (status == AnimationStatus.completed)
+    if (status.isCompleted) {
       dispose();
+    }
   }
 
   @override
   void dispose() {
     _radiusController.dispose();
-    _alphaController.dispose();
+    _alphaController!.dispose();
     _alphaController = null;
     super.dispose();
   }
 
-  RRect _clipRRectFromRect(Rect rect) {
-    return new RRect.fromRectAndCorners(
-      rect,
-      topLeft: _borderRadius.topLeft, topRight: _borderRadius.topRight,
-      bottomLeft: _borderRadius.bottomLeft, bottomRight: _borderRadius.bottomRight,
-    );
-  }
-
-  void _clipCanvasWithRect(Canvas canvas, Rect rect, {Offset offset}) {
-    Rect clipRect = rect;
-    if (offset != null) {
-      clipRect = clipRect.shift(offset);
-    }
-    if (_borderRadius != BorderRadius.zero) {
-      canvas.clipRRect(_clipRRectFromRect(clipRect));
-    } else {
-      canvas.clipRect(clipRect);
-    }
-  }
-
   @override
   void paintFeature(Canvas canvas, Matrix4 transform) {
-    final Paint paint = new Paint()..color = color.withAlpha(_alpha.value);
-    Offset center = _position;
-    if (_repositionToReferenceBox)
+    final Paint paint = Paint()..color = color.withAlpha(_alpha.value);
+    Offset? center = _position;
+    if (_repositionToReferenceBox) {
       center = Offset.lerp(center, referenceBox.size.center(Offset.zero), _radiusController.value);
-    final Offset originOffset = MatrixUtils.getAsTranslation(transform);
-    if (originOffset == null) {
-      canvas.save();
-      canvas.transform(transform.storage);
-      if (_clipCallback != null) {
-        _clipCanvasWithRect(canvas, _clipCallback());
-      }
-      canvas.drawCircle(center, _radius.value, paint);
-      canvas.restore();
-    } else {
-      if (_clipCallback != null) {
-        canvas.save();
-        _clipCanvasWithRect(canvas, _clipCallback(), offset: originOffset);
-      }
-      canvas.drawCircle(center + originOffset, _radius.value, paint);
-      if (_clipCallback != null)
-        canvas.restore();
     }
+    paintInkCircle(
+      canvas: canvas,
+      transform: transform,
+      paint: paint,
+      center: center!,
+      textDirection: _textDirection,
+      radius: _radius.value,
+      customBorder: customBorder,
+      borderRadius: _borderRadius,
+      clipCallback: _clipCallback,
+    );
   }
 }

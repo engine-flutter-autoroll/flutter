@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,45 +8,35 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../painting/mocks_for_image_cache.dart';
 
-const ImageProvider _kImage = TestImageProvider(21, 42);
-
 void main() {
+  late ImageProvider image;
+
+  setUpAll(() async {
+    image = TestImageProvider(21, 42, image: await createTestImage(width: 10, height: 10));
+  });
+
   testWidgets('ImageIcon sizing - no theme, default size', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      const Center(
-        child: ImageIcon(_kImage)
-      )
-    );
+    await tester.pumpWidget(Center(child: ImageIcon(image)));
 
     final RenderBox renderObject = tester.renderObject(find.byType(ImageIcon));
     expect(renderObject.size, equals(const Size.square(24.0)));
     expect(find.byType(Image), findsOneWidget);
+
+    imageCache.clear();
   });
 
   testWidgets('Icon opacity', (WidgetTester tester) async {
     await tester.pumpWidget(
-      const Center(
-        child: IconTheme(
-          data: IconThemeData(opacity: 0.5),
-          child: ImageIcon(_kImage),
-        ),
-      ),
+      Center(child: IconTheme(data: const IconThemeData(opacity: 0.5), child: ImageIcon(image))),
     );
 
-    final Image image = tester.widget(find.byType(Image));
-    expect(image, isNotNull);
-    expect(image.color.alpha, equals(128));
+    expect(tester.widget<Image>(find.byType(Image)).color!.alpha, equals(128));
+
+    imageCache.clear();
   });
 
   testWidgets('ImageIcon sizing - no theme, explicit size', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      const Center(
-        child: ImageIcon(
-          null,
-          size: 96.0
-        )
-      )
-    );
+    await tester.pumpWidget(const Center(child: ImageIcon(null, size: 96.0)));
 
     final RenderBox renderObject = tester.renderObject(find.byType(ImageIcon));
     expect(renderObject.size, equals(const Size.square(96.0)));
@@ -54,12 +44,7 @@ void main() {
 
   testWidgets('ImageIcon sizing - sized theme', (WidgetTester tester) async {
     await tester.pumpWidget(
-      const Center(
-        child: IconTheme(
-          data: IconThemeData(size: 36.0),
-          child: ImageIcon(null)
-        )
-      )
+      const Center(child: IconTheme(data: IconThemeData(size: 36.0), child: ImageIcon(null))),
     );
 
     final RenderBox renderObject = tester.renderObject(find.byType(ImageIcon));
@@ -69,14 +54,8 @@ void main() {
   testWidgets('ImageIcon sizing - sized theme, explicit size', (WidgetTester tester) async {
     await tester.pumpWidget(
       const Center(
-        child: IconTheme(
-          data: IconThemeData(size: 36.0),
-          child: ImageIcon(
-            null,
-            size: 48.0
-          )
-        )
-      )
+        child: IconTheme(data: IconThemeData(size: 36.0), child: ImageIcon(null, size: 48.0)),
+      ),
     );
 
     final RenderBox renderObject = tester.renderObject(find.byType(ImageIcon));
@@ -85,12 +64,7 @@ void main() {
 
   testWidgets('ImageIcon sizing - sizeless theme, default size', (WidgetTester tester) async {
     await tester.pumpWidget(
-      const Center(
-        child: IconTheme(
-          data: IconThemeData(),
-          child: ImageIcon(null)
-        )
-      )
+      const Center(child: IconTheme(data: IconThemeData(), child: ImageIcon(null))),
     );
 
     final RenderBox renderObject = tester.renderObject(find.byType(ImageIcon));
@@ -103,19 +77,15 @@ void main() {
       const Directionality(
         textDirection: TextDirection.ltr,
         child: Center(
-          child: IconTheme(
-            data: IconThemeData(),
-            child: ImageIcon(null, semanticLabel: 'test')
-          ),
+          child: IconTheme(data: IconThemeData(), child: ImageIcon(null, semanticLabel: 'test')),
         ),
       ),
     );
 
-    expect(tester.getSemanticsData(find.byType(ImageIcon)), matchesSemanticsData(
-      label: 'test',
-      textDirection: TextDirection.ltr,
-    ));
+    expect(
+      tester.getSemantics(find.byType(ImageIcon)),
+      matchesSemantics(label: 'test', textDirection: TextDirection.ltr),
+    );
     handle.dispose();
   });
-
 }

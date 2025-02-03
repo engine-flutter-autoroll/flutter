@@ -1,59 +1,59 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:flutter/material.dart';
 
 class AnimatedIconsTestApp extends StatelessWidget {
+  const AnimatedIconsTestApp({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return new MaterialApp(
-      title: 'Animated Icons Test',
-      home: const Scaffold(
-        body: IconsList(),
-      ),
-    );
+    return const MaterialApp(title: 'Animated Icons Test', home: Scaffold(body: IconsList()));
   }
 }
 
 class IconsList extends StatelessWidget {
-  const IconsList();
+  const IconsList({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return new ListView(
-      children: samples.map((IconSample s) => new IconSampleRow(s)).toList(),
+    return ListView(
+      children: samples.map<IconSampleRow>((IconSample s) => IconSampleRow(s)).toList(),
     );
   }
 }
 
 class IconSampleRow extends StatefulWidget {
-  const IconSampleRow(this.sample);
+  const IconSampleRow(this.sample, {super.key});
 
   final IconSample sample;
 
   @override
-  State createState() => new IconSampleRowState();
+  State createState() => IconSampleRowState();
 }
 
 class IconSampleRowState extends State<IconSampleRow> with SingleTickerProviderStateMixin {
-  AnimationController progress;
+  late final AnimationController progress = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 300),
+  );
 
   @override
   Widget build(BuildContext context) {
-    return new ListTile(
-      leading: new InkWell(
-        onTap: () { progress.forward(from: 0.0); },
-        child: new AnimatedIcon(
-          icon: widget.sample.icon,
-          progress: progress,
-          color: Colors.lightBlue,
-        ),
+    return ListTile(
+      leading: InkWell(
+        onTap: () {
+          progress.forward(from: 0.0);
+        },
+        child: AnimatedIcon(icon: widget.sample.icon, progress: progress, color: Colors.lightBlue),
       ),
-      title: new Text(widget.sample.description),
-      subtitle: new Slider(
+      title: Text(widget.sample.description),
+      subtitle: Slider(
         value: progress.value,
-        onChanged: (double v) { progress.animateTo(v, duration: Duration.zero); },
+        onChanged: (double v) {
+          progress.animateTo(v, duration: Duration.zero);
+        },
       ),
     );
   }
@@ -61,7 +61,6 @@ class IconSampleRowState extends State<IconSampleRow> with SingleTickerProviderS
   @override
   void initState() {
     super.initState();
-    progress = new AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
     progress.addListener(_handleChange);
   }
 
@@ -76,7 +75,7 @@ class IconSampleRowState extends State<IconSampleRow> with SingleTickerProviderS
   }
 }
 
-const List<IconSample> samples = <IconSample> [
+const List<IconSample> samples = <IconSample>[
   IconSample(AnimatedIcons.arrow_menu, 'arrow_menu'),
   IconSample(AnimatedIcons.menu_arrow, 'menu_arrow'),
 
@@ -105,4 +104,4 @@ class IconSample {
   final String description;
 }
 
-void main() => runApp(new AnimatedIconsTestApp());
+void main() => runApp(const AnimatedIconsTestApp());

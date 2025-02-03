@@ -1,36 +1,43 @@
+// Copyright 2014 The Flutter Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 void main() {
-  runApp(new FlutterView());
+  runApp(const FlutterView());
 }
 
 class FlutterView extends StatelessWidget {
+  const FlutterView({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return new MaterialApp(
+    return MaterialApp(
       title: 'Flutter View',
-      theme: new ThemeData(
-        primarySwatch: Colors.grey,
-      ),
-      home: new MyHomePage(),
+      theme: ThemeData(primarySwatch: Colors.grey),
+      home: const MyHomePage(),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key});
+
   @override
-  _MyHomePageState createState() => new _MyHomePageState();
+  State<MyHomePage> createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
   static const String _channel = 'increment';
   static const String _pong = 'pong';
   static const String _emptyMessage = '';
-  static const BasicMessageChannel<String> platform =
-      BasicMessageChannel<String>(_channel, StringCodec());
+  static const BasicMessageChannel<String?> platform = BasicMessageChannel<String?>(
+    _channel,
+    StringCodec(),
+  );
 
   int _counter = 0;
 
@@ -40,7 +47,7 @@ class _MyHomePageState extends State<MyHomePage> {
     platform.setMessageHandler(_handlePlatformIncrement);
   }
 
-  Future<String> _handlePlatformIncrement(String message) async {
+  Future<String> _handlePlatformIncrement(String? message) async {
     setState(() {
       _counter++;
     });
@@ -53,29 +60,30 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return new Scaffold(
-      body: new Column(
+    return Scaffold(
+      body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          new Expanded(
-            child: new Center(
-              child: new Text(
-                'Platform button tapped $_counter time${ _counter == 1 ? '' : 's' }.',
-                style: const TextStyle(fontSize: 17.0))
+          Expanded(
+            child: Center(
+              child: Text(
+                'Platform button tapped $_counter time${_counter == 1 ? '' : 's'}.',
+                style: const TextStyle(fontSize: 17.0),
+              ),
             ),
           ),
-          new Container(
+          Container(
             padding: const EdgeInsets.only(bottom: 15.0, left: 5.0),
-            child: new Row(
+            child: Row(
               children: <Widget>[
-                new Image.asset('assets/flutter-mark-square-64.png', scale: 1.5),
+                Image.asset('assets/flutter-mark-square-64.png', scale: 1.5),
                 const Text('Flutter', style: TextStyle(fontSize: 30.0)),
               ],
             ),
           ),
         ],
       ),
-      floatingActionButton: new FloatingActionButton(
+      floatingActionButton: FloatingActionButton(
         onPressed: _sendFlutterIncrement,
         child: const Icon(Icons.add),
       ),

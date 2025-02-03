@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,14 @@ import 'dart:collection';
 
 import 'package:meta/meta.dart';
 
+// TODO(ianh): We should remove AppContext's mechanism and replace it with
+// passing dependencies directly in constructors, methods, etc. See #47161.
+
 /// Generates an [AppContext] value.
 ///
 /// Generators are allowed to return `null`, in which case the context will
 /// store the `null` value as the value for that type.
-typedef dynamic Generator();
+typedef Generator = dynamic Function();
 
 /// An exception thrown by [AppContext] when you try to get a [Type] value from
 /// the context, and the instantiation of the value results in a dependency
@@ -26,6 +29,10 @@ class ContextDependencyCycleException implements Exception {
   String toString() => 'Dependency cycle detected: ${cycle.join(' -> ')}';
 }
 
+/// The Zone key used to look up the [AppContext].
+@visibleForTesting
+const Object contextKey = _Key.key;
+
 /// The current [AppContext], as determined by the [Zone] hierarchy.
 ///
 /// This will be the first context found as we scan up the zone hierarchy, or
@@ -33,7 +40,7 @@ class ContextDependencyCycleException implements Exception {
 /// context will not have any values associated with it.
 ///
 /// This is guaranteed to never return `null`.
-AppContext get context => Zone.current[_Key.key] ?? AppContext._root;
+AppContext get context => Zone.current[contextKey] as AppContext? ?? AppContext._root;
 
 /// A lookup table (mapping types to values) and an implied scope, in which
 /// code is run.
@@ -43,7 +50,7 @@ AppContext get context => Zone.current[_Key.key] ?? AppContext._root;
 /// scope) is created.
 ///
 /// Child contexts are created and run using zones. To read more about how
-/// zones work, see https://www.dartlang.org/articles/libraries/zones.
+/// zones work, see https://api.dart.dev/stable/dart-async/Zone-class.html.
 class AppContext {
   AppContext._(
     this._parent,
@@ -52,16 +59,16 @@ class AppContext {
     this._fallbacks = const <Type, Generator>{},
   ]);
 
-  final String name;
-  final AppContext _parent;
+  final String? name;
+  final AppContext? _parent;
   final Map<Type, Generator> _overrides;
   final Map<Type, Generator> _fallbacks;
   final Map<Type, dynamic> _values = <Type, dynamic>{};
 
-  List<Type> _reentrantChecks;
+  List<Type>? _reentrantChecks;
 
   /// Bootstrap context.
-  static final AppContext _root = new AppContext._(null, 'ROOT');
+  static final AppContext _root = AppContext._(null, 'ROOT');
 
   dynamic _boxNull(dynamic value) => value ?? _BoxedNull.instance;
 
@@ -81,37 +88,41 @@ class AppContext {
   /// If the generator ends up triggering a reentrant call, it signals a
   /// dependency cycle, and a [ContextDependencyCycleException] will be thrown.
   dynamic _generateIfNecessary(Type type, Map<Type, Generator> generators) {
-    if (!generators.containsKey(type))
+    if (!generators.containsKey(type)) {
       return null;
+    }
 
     return _values.putIfAbsent(type, () {
       _reentrantChecks ??= <Type>[];
 
-      final int index = _reentrantChecks.indexOf(type);
+      final int index = _reentrantChecks!.indexOf(type);
       if (index >= 0) {
         // We're already in the process of trying to generate this type.
-        throw new ContextDependencyCycleException._(
-            new UnmodifiableListView<Type>(_reentrantChecks.sublist(index)));
+        throw ContextDependencyCycleException._(
+          UnmodifiableListView<Type>(_reentrantChecks!.sublist(index)),
+        );
       }
 
-      _reentrantChecks.add(type);
+      _reentrantChecks!.add(type);
       try {
-        return _boxNull(generators[type]());
+        return _boxNull(generators[type]!());
       } finally {
-        _reentrantChecks.removeLast();
-        if (_reentrantChecks.isEmpty)
+        _reentrantChecks!.removeLast();
+        if (_reentrantChecks!.isEmpty) {
           _reentrantChecks = null;
+        }
       }
     });
   }
 
   /// Gets the value associated with the specified [type], or `null` if no
   /// such value has been associated.
-  dynamic operator [](Type type) {
-    dynamic value = _generateIfNecessary(type, _overrides);
-    if (value == null && _parent != null)
-      value = _parent[type];
-    return _unboxNull(value ?? _generateIfNecessary(type, _fallbacks));
+  T? get<T>() {
+    dynamic value = _generateIfNecessary(T, _overrides);
+    if (value == null && _parent != null) {
+      value = _parent.get<T>();
+    }
+    return _unboxNull(value ?? _generateIfNecessary(T, _fallbacks)) as T?;
   }
 
   /// Runs [body] in a child context and returns the value returned by [body].
@@ -127,38 +138,44 @@ class AppContext {
   /// name. This is useful for debugging purposes and is analogous to naming a
   /// thread in Java.
   Future<V> run<V>({
-    @required FutureOr<V> body(),
-    String name,
-    Map<Type, Generator> overrides,
-    Map<Type, Generator> fallbacks,
+    required FutureOr<V> Function() body,
+    String? name,
+    Map<Type, Generator>? overrides,
+    Map<Type, Generator>? fallbacks,
+    ZoneSpecification? zoneSpecification,
   }) async {
-    final AppContext child = new AppContext._(
+    final AppContext child = AppContext._(
       this,
       name,
-      new Map<Type, Generator>.unmodifiable(overrides ?? const <Type, Generator>{}),
-      new Map<Type, Generator>.unmodifiable(fallbacks ?? const <Type, Generator>{}),
+      Map<Type, Generator>.unmodifiable(overrides ?? const <Type, Generator>{}),
+      Map<Type, Generator>.unmodifiable(fallbacks ?? const <Type, Generator>{}),
     );
-    return await runZoned<Future<V>>(
+    return runZoned<Future<V>>(
       () async => await body(),
       zoneValues: <_Key, AppContext>{_Key.key: child},
+      zoneSpecification: zoneSpecification,
     );
   }
 
   @override
   String toString() {
-    final StringBuffer buf = new StringBuffer();
+    final StringBuffer buf = StringBuffer();
     String indent = '';
-    AppContext ctx = this;
+    AppContext? ctx = this;
     while (ctx != null) {
       buf.write('AppContext');
-      if (ctx.name != null)
+      if (ctx.name != null) {
         buf.write('[${ctx.name}]');
-      if (ctx._overrides.isNotEmpty)
+      }
+      if (ctx._overrides.isNotEmpty) {
         buf.write('\n$indent  overrides: [${ctx._overrides.keys.join(', ')}]');
-      if (ctx._fallbacks.isNotEmpty)
+      }
+      if (ctx._fallbacks.isNotEmpty) {
         buf.write('\n$indent  fallbacks: [${ctx._fallbacks.keys.join(', ')}]');
-      if (ctx._parent != null)
+      }
+      if (ctx._parent != null) {
         buf.write('\n$indent  parent: ');
+      }
       ctx = ctx._parent;
       indent += '  ';
     }

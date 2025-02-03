@@ -1,46 +1,48 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
+import 'package:process/process.dart';
 
-import '../base/version.dart';
-import '../doctor.dart';
+import '../base/file_system.dart';
+import '../base/platform.dart';
+import '../doctor_validator.dart';
 import 'vscode.dart';
 
 class VsCodeValidator extends DoctorValidator {
-  static const String extensionMarketplaceUrl =
-    'https://marketplace.visualstudio.com/items?itemName=${VsCode.extensionIdentifier}';
-  final VsCode _vsCode;
-
   VsCodeValidator(this._vsCode) : super(_vsCode.productName);
 
-  static Iterable<DoctorValidator> get installedValidators {
-    return VsCode
-        .allInstalled()
-        .map((VsCode vsCode) => new VsCodeValidator(vsCode));
+  final VsCode _vsCode;
+
+  static Iterable<DoctorValidator> installedValidators(
+    FileSystem fileSystem,
+    Platform platform,
+    ProcessManager processManager,
+  ) {
+    return VsCode.allInstalled(
+      fileSystem,
+      platform,
+      processManager,
+    ).map<DoctorValidator>((VsCode vsCode) => VsCodeValidator(vsCode));
   }
 
   @override
-  Future<ValidationResult> validate() async {
-    final List<ValidationMessage> messages = <ValidationMessage>[];
-    ValidationType type = ValidationType.missing;
-    final String vsCodeVersionText = _vsCode.version == Version.unknown
-        ? null
-        : 'version ${_vsCode.version}';
-    messages.add(new ValidationMessage('VS Code at ${_vsCode.directory}'));
-    if (_vsCode.isValid) {
-      type = ValidationType.installed;
-      messages.addAll(_vsCode.validationMessages
-          .map((String m) => new ValidationMessage(m)));
-    } else {
-      type = ValidationType.partial;
-      messages.addAll(_vsCode.validationMessages
-          .map((String m) => new ValidationMessage.error(m)));
-      messages.add(new ValidationMessage(
-          'Flutter extension not installed; install from\n$extensionMarketplaceUrl'));
+  Future<ValidationResult> validateImpl() async {
+    final List<ValidationMessage> validationMessages = List<ValidationMessage>.from(
+      _vsCode.validationMessages,
+    );
+
+    final String vsCodeVersionText =
+        _vsCode.version == null ? 'version unknown' : 'version ${_vsCode.version}';
+
+    if (_vsCode.version == null) {
+      validationMessages.add(const ValidationMessage.error('Unable to determine VS Code version.'));
     }
 
-    return new ValidationResult(type, messages, statusInfo: vsCodeVersionText);
+    return ValidationResult(
+      ValidationType.success,
+      validationMessages,
+      statusInfo: vsCodeVersionText,
+    );
   }
 }

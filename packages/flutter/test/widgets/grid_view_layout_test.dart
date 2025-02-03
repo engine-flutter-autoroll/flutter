@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,16 +15,12 @@ void main() {
     ];
 
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
-        child: new Center(
-          child: new Container(
+        child: Center(
+          child: SizedBox(
             width: 200.0,
-            child: new GridView.extent(
-              maxCrossAxisExtent: 100.0,
-              shrinkWrap: true,
-              children: children,
-            ),
+            child: GridView.extent(maxCrossAxisExtent: 100.0, shrinkWrap: true, children: children),
           ),
         ),
       ),
@@ -32,7 +28,7 @@ void main() {
 
     expect(tester.renderObjectList<RenderBox>(find.byType(DecoratedBox)), hasLength(4));
 
-    for (RenderBox box in tester.renderObjectList<RenderBox>(find.byType(DecoratedBox))) {
+    for (final RenderBox box in tester.renderObjectList<RenderBox>(find.byType(DecoratedBox))) {
       expect(box.size.width, equals(100.0), reason: 'child width');
       expect(box.size.height, equals(100.0), reason: 'child height');
     }
@@ -44,22 +40,18 @@ void main() {
     expect(grid.debugNeedsLayout, false);
 
     await tester.pumpWidget(
-      new Directionality(
+      Directionality(
         textDirection: TextDirection.ltr,
-        child: new Center(
-          child: new Container(
+        child: Center(
+          child: SizedBox(
             width: 200.0,
-            child: new GridView.extent(
-              maxCrossAxisExtent: 60.0,
-              shrinkWrap: true,
-              children: children,
-            ),
+            child: GridView.extent(maxCrossAxisExtent: 60.0, shrinkWrap: true, children: children),
           ),
         ),
       ),
     );
 
-    for (RenderBox box in tester.renderObjectList<RenderBox>(find.byType(DecoratedBox))) {
+    for (final RenderBox box in tester.renderObjectList<RenderBox>(find.byType(DecoratedBox))) {
       expect(box.size.width, equals(50.0), reason: 'child width');
       expect(box.size.height, equals(50.0), reason: 'child height');
     }

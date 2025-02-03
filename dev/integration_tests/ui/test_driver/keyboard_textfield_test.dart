@@ -1,23 +1,21 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
-import 'package:integration_ui/keys.dart' as keys;
 import 'package:flutter_driver/flutter_driver.dart';
-import 'package:test/test.dart';
+import 'package:integration_ui/keys.dart' as keys;
+import 'package:test/test.dart' hide TypeMatcher, isInstanceOf;
 
 void main() {
   group('end-to-end test', () {
-    FlutterDriver driver;
+    late FlutterDriver driver;
 
     setUpAll(() async {
       driver = await FlutterDriver.connect();
     });
 
     tearDownAll(() async {
-      driver?.close();
+      await driver.close();
     });
 
     test('Textfield scrolls back into view after covered by keyboard', () async {
@@ -26,6 +24,9 @@ void main() {
       final SerializableFinder listViewFinder = find.byValueKey(keys.kListView);
       final SerializableFinder textFieldFinder = find.byValueKey(keys.kDefaultTextField);
       final SerializableFinder offsetFinder = find.byValueKey(keys.kOffsetText);
+      final SerializableFinder keyboardVisibilityIndicatorFinder = find.byValueKey(
+        keys.kKeyboardVisibleView,
+      );
 
       // Align TextField with bottom edge to ensure it would be covered when keyboard comes up.
       await driver.waitForAbsent(textFieldFinder);
@@ -40,7 +41,11 @@ void main() {
 
       // Bring up keyboard
       await driver.tap(textFieldFinder);
-      await new Future<Null>.delayed(const Duration(seconds: 1));
+
+      // The blinking cursor may have animation. Do not wait for it to finish.
+      await driver.runUnsynchronized(() async {
+        await driver.waitFor(keyboardVisibilityIndicatorFinder);
+      });
 
       // Ensure that TextField is visible again
       await driver.waitFor(textFieldFinder);
@@ -48,6 +53,6 @@ void main() {
 
       // Ensure the scroll offset changed appropriately when TextField scrolled back into view.
       expect(scrollOffsetWithKeyboard, greaterThan(scrollOffsetWithoutKeyboard));
-    });
+    }, timeout: Timeout.none);
   });
 }

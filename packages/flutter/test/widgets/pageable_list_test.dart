@@ -1,51 +1,46 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
-import 'package:meta/meta.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 Size pageSize = const Size(600.0, 300.0);
 const List<int> defaultPages = <int>[0, 1, 2, 3, 4, 5];
-final List<GlobalKey> globalKeys = defaultPages.map((_) => new GlobalKey()).toList();
-int currentPage;
+final List<GlobalKey> globalKeys = defaultPages.map<GlobalKey>((_) => GlobalKey()).toList();
+int? currentPage;
 
 Widget buildPage(int page) {
-  return new Container(
+  return SizedBox(
     key: globalKeys[page],
     width: pageSize.width,
     height: pageSize.height,
-    child: new Text(page.toString())
+    child: Text(page.toString()),
   );
 }
 
 Widget buildFrame({
   bool reverse = false,
   List<int> pages = defaultPages,
-  @required TextDirection textDirection,
+  required TextDirection textDirection,
 }) {
-  final PageView child = new PageView(
-    scrollDirection: Axis.horizontal,
+  final PageView child = PageView(
     reverse: reverse,
-    onPageChanged: (int page) { currentPage = page; },
-    children: pages.map(buildPage).toList(),
+    onPageChanged: (int page) {
+      currentPage = page;
+    },
+    children: pages.map<Widget>(buildPage).toList(),
   );
 
   // The test framework forces the frame to be 800x600, so we need to create
   // an outer container where we can change the size.
-  return new Directionality(
+  return Directionality(
     textDirection: textDirection,
-    child: new Center(
-      child: new Container(
-        width: pageSize.width, height: pageSize.height, child: child,
-      ),
-    ),
+    child: Center(child: SizedBox(width: pageSize.width, height: pageSize.height, child: child)),
   );
 }
 
-Future<Null> page(WidgetTester tester, Offset offset) {
+Future<void> page(WidgetTester tester, Offset offset) {
   return TestAsyncUtils.guard(() async {
     final String itemText = currentPage != null ? currentPage.toString() : '0';
     await tester.drag(find.text(itemText), offset);
@@ -53,23 +48,18 @@ Future<Null> page(WidgetTester tester, Offset offset) {
   });
 }
 
-Future<Null> pageLeft(WidgetTester tester) {
-  return page(tester, new Offset(-pageSize.width, 0.0));
+Future<void> pageLeft(WidgetTester tester) {
+  return page(tester, Offset(-pageSize.width, 0.0));
 }
 
-Future<Null> pageRight(WidgetTester tester) {
-  return page(tester, new Offset(pageSize.width, 0.0));
+Future<void> pageRight(WidgetTester tester) {
+  return page(tester, Offset(pageSize.width, 0.0));
 }
 
 void main() {
   testWidgets('PageView default control', (WidgetTester tester) async {
     await tester.pumpWidget(
-      new Directionality(
-        textDirection: TextDirection.ltr,
-        child: new Center(
-          child: new PageView(),
-        ),
-      ),
+      Directionality(textDirection: TextDirection.ltr, child: Center(child: PageView())),
     );
   });
 

@@ -1,9 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "AppDelegate.h"
-#include "GeneratedPluginRegistrant.h"
+#import "AppDelegate.h"
+#import "GeneratedPluginRegistrant.h"
 
 @interface Pair : NSObject
 @property(atomic, readonly, strong, nullable) NSObject* left;
@@ -114,7 +114,18 @@ const UInt8 PAIR = 129;
     [FlutterMethodChannel methodChannelWithName:@"std-method"
                                 binaryMessenger:flutterController
                                           codec:[FlutterStandardMethodCodec codecWithReaderWriter:extendedReaderWriter]]];
-  return [super application:application didFinishLaunchingWithOptions:launchOptions];
+
+  [[FlutterBasicMessageChannel
+      messageChannelWithName:@"std-echo"
+             binaryMessenger:flutterController
+                       codec:[FlutterStandardMessageCodec
+                                 codecWithReaderWriter:extendedReaderWriter]]
+      setMessageHandler:^(id message, FlutterReply reply) {
+        reply(message);
+      }];
+
+  return [super application:application
+      didFinishLaunchingWithOptions:launchOptions];
 }
 
 - (void)setupMessagingHandshakeOnChannel:(FlutterBasicMessageChannel*)channel {

@@ -1,19 +1,19 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
 
-ChangerState changer;
+late ChangerState changer;
 
 class Changer extends StatefulWidget {
-  const Changer(this.child);
+  const Changer(this.child, {super.key});
 
   final Widget child;
 
   @override
-  ChangerState createState() => new ChangerState();
+  ChangerState createState() => ChangerState();
 }
 
 class ChangerState extends State<Changer> {
@@ -25,14 +25,18 @@ class ChangerState extends State<Changer> {
     changer = this;
   }
 
-  void test() { setState(() { _state = true; }); }
+  void test() {
+    setState(() {
+      _state = true;
+    });
+  }
 
   @override
-  Widget build(BuildContext context) => _state ? new Wrapper(widget.child) : widget.child;
+  Widget build(BuildContext context) => _state ? Wrapper(widget.child) : widget.child;
 }
 
 class Wrapper extends StatelessWidget {
-  const Wrapper(this.child);
+  const Wrapper(this.child, {super.key});
 
   final Widget child;
 
@@ -41,8 +45,9 @@ class Wrapper extends StatelessWidget {
 }
 
 class Leaf extends StatefulWidget {
+  const Leaf({super.key});
   @override
-  LeafState createState() => new LeafState();
+  LeafState createState() => LeafState();
 }
 
 class LeafState extends State<Leaf> {
@@ -52,8 +57,8 @@ class LeafState extends State<Leaf> {
 
 void main() {
   testWidgets('three-way setState() smoke test', (WidgetTester tester) async {
-    await tester.pumpWidget(new Changer(new Wrapper(new Leaf())));
-    await tester.pumpWidget(new Changer(new Wrapper(new Leaf())));
+    await tester.pumpWidget(const Changer(Wrapper(Leaf())));
+    await tester.pumpWidget(const Changer(Wrapper(Leaf())));
     changer.test();
     await tester.pump();
   });

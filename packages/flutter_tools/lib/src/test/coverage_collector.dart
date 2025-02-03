@@ -1,37 +1,129 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
 import 'package:coverage/coverage.dart' as coverage;
+import 'package:meta/meta.dart';
 
 import '../base/file_system.dart';
 import '../base/io.dart';
-import '../base/logger.dart';
-import '../base/os.dart';
-import '../base/platform.dart';
-import '../base/process_manager.dart';
-import '../dart/package_map.dart';
-import '../globals.dart';
+import '../base/process.dart';
+import '../globals.dart' as globals;
+import '../vmservice.dart';
 
+import 'test_device.dart';
+import 'test_time_recorder.dart';
 import 'watcher.dart';
 
-/// A class that's used to collect coverage data during tests.
+/// A class that collects code coverage data during test runs.
 class CoverageCollector extends TestWatcher {
-  Map<String, dynamic> _globalHitmap;
+  CoverageCollector({
+    this.libraryNames,
+    this.verbose = true,
+    required this.packagesPath,
+    this.resolver,
+    this.testTimeRecorder,
+    this.branchCoverage = false,
+  });
 
-  @override
-  Future<void> onFinishedTest(ProcessEvent event) async {
-    printTrace('test ${event.childIndex}: collecting coverage');
-    await collectCoverage(event.process, event.observatoryUri);
+  /// True when log messages should be emitted.
+  final bool verbose;
+
+  /// The path to the package_config.json of the package for which code
+  /// coverage is computed.
+  final String packagesPath;
+
+  /// Map of file path to coverage hit map for that file.
+  Map<String, coverage.HitMap>? _globalHitmap;
+
+  /// The names of the libraries to gather coverage for. If null, all libraries
+  /// will be accepted.
+  Set<String>? libraryNames;
+
+  final coverage.Resolver? resolver;
+  final Map<String, List<List<int>>?> _ignoredLinesInFilesCache = <String, List<List<int>>?>{};
+  final Map<String, Set<int>> _coverableLineCache = <String, Set<int>>{};
+
+  final TestTimeRecorder? testTimeRecorder;
+
+  /// Whether to collect branch coverage information.
+  bool branchCoverage;
+
+  static Future<coverage.Resolver> getResolver(String? packagesPath) async {
+    try {
+      return await coverage.Resolver.create(packagesPath: packagesPath);
+    } on FileSystemException {
+      // When given a bad packages path (as for instance done in some tests)
+      // just ignore it and return one without a packages path.
+      return coverage.Resolver.create();
+    }
   }
 
-  void _addHitmap(Map<String, dynamic> hitmap) {
-    if (_globalHitmap == null)
+  @override
+  Future<void> handleFinishedTest(TestDevice testDevice) async {
+    _logMessage('Starting coverage collection');
+    await collectCoverage(testDevice);
+  }
+
+  void _logMessage(String line, {bool error = false}) {
+    if (!verbose) {
+      return;
+    }
+    if (error) {
+      globals.printError(line);
+    } else {
+      globals.printTrace(line);
+    }
+  }
+
+  void _addHitmap(Map<String, coverage.HitMap> hitmap) {
+    final Stopwatch? stopwatch = testTimeRecorder?.start(TestTimePhases.CoverageAddHitmap);
+    if (_globalHitmap == null) {
       _globalHitmap = hitmap;
-    else
-      coverage.mergeHitmaps(hitmap, _globalHitmap);
+    } else {
+      _globalHitmap!.merge(hitmap);
+    }
+    testTimeRecorder?.stop(TestTimePhases.CoverageAddHitmap, stopwatch!);
+  }
+
+  /// The directory of the package for which coverage is being collected.
+  String get packageDirectory {
+    // The coverage package expects the directory of the package itself, and
+    // uses that to locate the package_info.json file, which it treats as a
+    // private implementation detail. In general, the package_info.json file is
+    // located in `.dart_tool/package_info.json` relative to the package
+    // directory, so we return the grandparent directory of that file.
+    //
+    // This may not be a safe assumption in non-standard environments, such as
+    // when building under build systems such as Bazel. In those cases, this
+    // getter should be overridden.
+    return globals.fs.directory(globals.fs.file(packagesPath).dirname).dirname;
+  }
+
+  /// Collects coverage for an isolate using the given `port`.
+  ///
+  /// This should be called when the code whose coverage data is being collected
+  /// has been run to completion so that all coverage data has been recorded.
+  ///
+  /// The returned [Future] completes when the coverage is collected.
+  Future<void> collectCoverageIsolate(Uri vmServiceUri) async {
+    _logMessage('collecting coverage data from $vmServiceUri...');
+    final Map<String, dynamic> data = await collect(
+      vmServiceUri,
+      libraryNames,
+      branchCoverage: branchCoverage,
+      coverableLineCache: _coverableLineCache,
+    );
+
+    _logMessage('($vmServiceUri): collected coverage data; merging...');
+    _addHitmap(
+      await coverage.HitMap.parseJson(
+        data['coverage'] as List<Map<String, dynamic>>,
+        packagePath: packageDirectory,
+        checkIgnoredLines: true,
+      ),
+    );
+    _logMessage('($vmServiceUri): done merging coverage data into global coverage map.');
   }
 
   /// Collects coverage for the given [Process] using the given `port`.
@@ -40,117 +132,191 @@ class CoverageCollector extends TestWatcher {
   /// has been run to completion so that all coverage data has been recorded.
   ///
   /// The returned [Future] completes when the coverage is collected.
-  Future<Null> collectCoverage(Process process, Uri observatoryUri) async {
-    assert(process != null);
-    assert(observatoryUri != null);
+  Future<void> collectCoverage(
+    TestDevice testDevice, {
+    @visibleForTesting FlutterVmService? serviceOverride,
+  }) async {
+    final Stopwatch? totalTestTimeRecorderStopwatch = testTimeRecorder?.start(
+      TestTimePhases.CoverageTotal,
+    );
 
-    final int pid = process.pid;
-    int exitCode;
-    // Synchronization is enforced by the API contract. Error handling
-    // synchronization is done in the code below where `exitCode` is checked.
-    // Callback cannot throw.
-    process.exitCode.then<Null>((int code) { // ignore: unawaited_futures
-      exitCode = code;
+    late Map<String, dynamic> data;
+
+    final Stopwatch? collectTestTimeRecorderStopwatch = testTimeRecorder?.start(
+      TestTimePhases.CoverageCollect,
+    );
+
+    final Future<void> processComplete = testDevice.finished.then(
+      (Object? obj) => obj,
+      onError: (Object error, StackTrace stackTrace) {
+        if (error is TestDeviceException) {
+          throw Exception(
+            'Failed to collect coverage, test device terminated prematurely with '
+            'error: ${error.message}.\n$stackTrace',
+          );
+        }
+        return Future<Object?>.error(error, stackTrace);
+      },
+    );
+
+    final Future<void> collectionComplete = testDevice.vmServiceUri.then((Uri? vmServiceUri) {
+      _logMessage('collecting coverage data from $testDevice at $vmServiceUri...');
+      return collect(
+        vmServiceUri!,
+        libraryNames,
+        serviceOverride: serviceOverride,
+        branchCoverage: branchCoverage,
+        coverableLineCache: _coverableLineCache,
+      ).then<void>((Map<String, dynamic> result) {
+        _logMessage('Collected coverage data.');
+        data = result;
+      });
     });
-    if (exitCode != null)
-      throw new Exception('Failed to collect coverage, process terminated before coverage could be collected.');
 
-    printTrace('pid $pid: collecting coverage data from $observatoryUri...');
-    final Map<String, dynamic> data = await coverage
-        .collect(observatoryUri, false, false)
-        .timeout(
-          const Duration(minutes: 2),
-          onTimeout: () {
-            throw new Exception('Timed out while collecting coverage.');
-          },
-        );
-    printTrace(() {
-      final StringBuffer buf = new StringBuffer()
-          ..write('pid $pid ($observatoryUri): ')
-          ..write(exitCode == null
-              ? 'collected coverage data; merging...'
-              : 'process terminated prematurely with exit code $exitCode; aborting');
-      return buf.toString();
-    }());
-    if (exitCode != null)
-      throw new Exception('Failed to collect coverage, process terminated while coverage was being collected.');
-    _addHitmap(coverage.createHitmap(data['coverage']));
-    printTrace('pid $pid ($observatoryUri): done merging coverage data into global coverage map.');
+    await Future.any<void>(<Future<void>>[processComplete, collectionComplete]);
+
+    testTimeRecorder?.stop(TestTimePhases.CoverageCollect, collectTestTimeRecorderStopwatch!);
+
+    _logMessage('Merging coverage data...');
+    final Stopwatch? parseTestTimeRecorderStopwatch = testTimeRecorder?.start(
+      TestTimePhases.CoverageParseJson,
+    );
+
+    final Map<String, coverage.HitMap> hitmap = coverage.HitMap.parseJsonSync(
+      data['coverage'] as List<Map<String, dynamic>>,
+      checkIgnoredLines: true,
+      resolver: resolver ?? await CoverageCollector.getResolver(packageDirectory),
+      ignoredLinesInFilesCache: _ignoredLinesInFilesCache,
+    );
+    testTimeRecorder?.stop(TestTimePhases.CoverageParseJson, parseTestTimeRecorderStopwatch!);
+
+    _addHitmap(hitmap);
+    _logMessage('Done merging coverage data into global coverage map.');
+    testTimeRecorder?.stop(TestTimePhases.CoverageTotal, totalTestTimeRecorderStopwatch!);
   }
 
-  /// Returns a future that will complete with the formatted coverage data
-  /// (using [formatter]) once all coverage data has been collected.
+  /// Returns formatted coverage data once all coverage data has been collected.
   ///
   /// This will not start any collection tasks. It us up to the caller of to
   /// call [collectCoverage] for each process first.
-  ///
-  /// If [timeout] is specified, the future will timeout (with a
-  /// [TimeoutException]) after the specified duration.
-  Future<String> finalizeCoverage({
-    coverage.Formatter formatter,
-    Duration timeout,
+  Future<String?> finalizeCoverage({
+    String Function(Map<String, coverage.HitMap> hitmap)? formatter,
+    coverage.Resolver? resolver,
+    Directory? coverageDirectory,
   }) async {
-    printTrace('formating coverage data');
-    if (_globalHitmap == null)
+    if (_globalHitmap == null) {
       return null;
-    if (formatter == null) {
-      final coverage.Resolver resolver = new coverage.Resolver(packagesPath: PackageMap.globalPackagesPath);
-      final String packagePath = fs.currentDirectory.path;
-      final List<String> reportOn = <String>[fs.path.join(packagePath, 'lib')];
-      formatter = new coverage.LcovFormatter(resolver, reportOn: reportOn, basePath: packagePath);
     }
-    final String result = await formatter.format(_globalHitmap);
+    if (formatter == null) {
+      final coverage.Resolver usedResolver =
+          resolver ?? this.resolver ?? await CoverageCollector.getResolver(packagesPath);
+      final String packagePath = globals.fs.currentDirectory.path;
+      // find paths for libraryNames so we can include them to report
+      final List<String>? libraryPaths =
+          libraryNames
+              ?.map((String e) => usedResolver.resolve('package:$e'))
+              .whereType<String>()
+              .toList();
+      final List<String>? reportOn =
+          coverageDirectory == null ? libraryPaths : <String>[coverageDirectory.path];
+      formatter =
+          (Map<String, coverage.HitMap> hitmap) =>
+              hitmap.formatLcov(usedResolver, reportOn: reportOn, basePath: packagePath);
+    }
+    final String result = formatter(_globalHitmap!);
     _globalHitmap = null;
     return result;
   }
 
-  Future<bool> collectCoverageData(String coveragePath, { bool mergeCoverageData = false }) async {
-    final Status status = logger.startProgress('Collecting coverage information...');
-    final String coverageData = await finalizeCoverage(
-      timeout: const Duration(seconds: 30),
-    );
-    status.stop();
-    printTrace('coverage information collection complete');
-    if (coverageData == null)
+  Future<bool> collectCoverageData(
+    String? coveragePath, {
+    bool mergeCoverageData = false,
+    Directory? coverageDirectory,
+  }) async {
+    final String? coverageData = await finalizeCoverage(coverageDirectory: coverageDirectory);
+    _logMessage('coverage information collection complete');
+    if (coverageData == null) {
       return false;
+    }
 
-    final File coverageFile = fs.file(coveragePath)
-      ..createSync(recursive: true)
-      ..writeAsStringSync(coverageData, flush: true);
-    printTrace('wrote coverage data to $coveragePath (size=${coverageData.length})');
+    final File coverageFile =
+        globals.fs.file(coveragePath)
+          ..createSync(recursive: true)
+          ..writeAsStringSync(coverageData, flush: true);
+    _logMessage('wrote coverage data to $coveragePath (size=${coverageData.length})');
 
     const String baseCoverageData = 'coverage/lcov.base.info';
     if (mergeCoverageData) {
-      if (!fs.isFileSync(baseCoverageData)) {
-        printError('Missing "$baseCoverageData". Unable to merge coverage data.');
+      if (!globals.fs.isFileSync(baseCoverageData)) {
+        _logMessage('Missing "$baseCoverageData". Unable to merge coverage data.', error: true);
         return false;
       }
 
-      if (os.which('lcov') == null) {
+      if (globals.os.which('lcov') == null) {
         String installMessage = 'Please install lcov.';
-        if (platform.isLinux)
+        if (globals.platform.isLinux) {
           installMessage = 'Consider running "sudo apt-get install lcov".';
-        else if (platform.isMacOS)
+        } else if (globals.platform.isMacOS) {
           installMessage = 'Consider running "brew install lcov".';
-        printError('Missing "lcov" tool. Unable to merge coverage data.\n$installMessage');
+        }
+        _logMessage(
+          'Missing "lcov" tool. Unable to merge coverage data.\n$installMessage',
+          error: true,
+        );
         return false;
       }
 
-      final Directory tempDir = fs.systemTempDirectory.createTempSync('flutter_tools');
+      final Directory tempDir = globals.fs.systemTempDirectory.createTempSync(
+        'flutter_tools_test_coverage.',
+      );
       try {
-        final File sourceFile = coverageFile.copySync(fs.path.join(tempDir.path, 'lcov.source.info'));
-        final ProcessResult result = processManager.runSync(<String>[
+        final File sourceFile = coverageFile.copySync(
+          globals.fs.path.join(tempDir.path, 'lcov.source.info'),
+        );
+        final RunResult result = globals.processUtils.runSync(<String>[
           'lcov',
-          '--add-tracefile', baseCoverageData,
-          '--add-tracefile', sourceFile.path,
-          '--output-file', coverageFile.path,
+          '--add-tracefile',
+          baseCoverageData,
+          '--add-tracefile',
+          sourceFile.path,
+          '--output-file',
+          coverageFile.path,
         ]);
-        if (result.exitCode != 0)
+        if (result.exitCode != 0) {
           return false;
+        }
       } finally {
         tempDir.deleteSync(recursive: true);
       }
     }
     return true;
   }
+
+  @override
+  Future<void> handleTestCrashed(TestDevice testDevice) async {}
+
+  @override
+  Future<void> handleTestTimedOut(TestDevice testDevice) async {}
+}
+
+Future<Map<String, dynamic>> collect(
+  Uri serviceUri,
+  Set<String>? libraryNames, {
+  bool waitPaused = false,
+  String? debugName,
+  @visibleForTesting bool forceSequential = false,
+  @visibleForTesting FlutterVmService? serviceOverride,
+  bool branchCoverage = false,
+  Map<String, Set<int>>? coverableLineCache,
+}) {
+  return coverage.collect(
+    serviceUri,
+    false,
+    false,
+    false,
+    libraryNames,
+    serviceOverrideForTesting: serviceOverride?.service,
+    branchCoverage: branchCoverage,
+    coverableLineCache: coverableLineCache,
+  );
 }

@@ -1,105 +1,83 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/// @docImport 'dart:developer';
+/// @docImport 'dart:isolate';
+///
+/// @docImport 'package:flutter/scheduler.dart';
+library;
+
 import 'dart:async';
-import 'dart:developer' show Timeline, Flow;
-import 'dart:isolate';
 
-import 'package:meta/meta.dart';
-
-import 'profile.dart';
+import '_isolates_io.dart' if (dart.library.js_util) '_isolates_web.dart' as isolates;
 
 /// Signature for the callback passed to [compute].
 ///
-/// {@macro flutter.foundation.compute.types}
+/// {@macro flutter.foundation.compute.callback}
 ///
-/// Instances of [ComputeCallback] must be top-level functions or static methods
-/// of classes, not closures or instance methods of objects.
-///
-/// {@macro flutter.foundation.compute.limitations}
-typedef R ComputeCallback<Q, R>(Q message);
+typedef ComputeCallback<M, R> = FutureOr<R> Function(M message);
 
-/// Spawn an isolate, run `callback` on that isolate, passing it `message`, and
-/// (eventually) return the value returned by `callback`.
+/// The signature of [compute], which spawns an isolate, runs `callback` on
+/// that isolate, passes it `message`, and (eventually) returns the value
+/// returned by `callback`.
+typedef ComputeImpl =
+    Future<R> Function<M, R>(ComputeCallback<M, R> callback, M message, {String? debugLabel});
+
+/// Asynchronously runs the given [callback] - with the provided [message] -
+/// in the background and completes with the result.
 ///
+/// {@template flutter.foundation.compute.usecase}
 /// This is useful for operations that take longer than a few milliseconds, and
 /// which would therefore risk skipping frames. For tasks that will only take a
-/// few milliseconds, consider [scheduleTask] instead.
-///
-/// {@template flutter.foundation.compute.types}
-/// `Q` is the type of the message that kicks off the computation.
-///
-/// `R` is the type of the value returned.
+/// few milliseconds, consider [SchedulerBinding.scheduleTask] instead.
 /// {@endtemplate}
 ///
-/// The `callback` argument must be a top-level function, not a closure or an
-/// instance or static method of a class.
+/// {@youtube 560 315 https://www.youtube.com/watch?v=5AxWC49ZMzs}
 ///
-/// {@template flutter.foundation.compute.limitations}
-/// There are limitations on the values that can be sent and received to and
-/// from isolates. These limitations constrain the values of `Q` and `R` that
-/// are possible. See the discussion at [SendPort.send].
+/// {@tool snippet}
+/// The following code uses the [compute] function to check whether a given
+/// integer is a prime number.
+///
+/// ```dart
+/// Future<bool> isPrime(int value) {
+///   return compute(_calculate, value);
+/// }
+///
+/// bool _calculate(int value) {
+///   if (value == 1) {
+///     return false;
+///   }
+///   for (int i = 2; i < value; ++i) {
+///     if (value % i == 0) {
+///       return false;
+///     }
+///   }
+///   return true;
+/// }
+/// ```
+/// {@end-tool}
+///
+/// On web platforms this will run [callback] on the current eventloop.
+/// On native platforms this will run [callback] in a separate isolate.
+///
+/// {@template flutter.foundation.compute.callback}
+///
+/// The `callback`, the `message` given to it as well as the result have to be
+/// objects that can be sent across isolates (as they may be transitively copied
+/// if needed). The majority of objects can be sent across isolates.
+///
+/// See [SendPort.send] for more information about exceptions as well as a note
+/// of warning about sending closures, which can capture more state than needed.
+///
 /// {@endtemplate}
 ///
-/// The `debugLabel` argument can be specified to provide a name to add to the
-/// [Timeline]. This is useful when profiling an application.
-Future<R> compute<Q, R>(ComputeCallback<Q, R> callback, Q message, { String debugLabel }) async {
-  profile(() { debugLabel ??= callback.toString(); });
-  final Flow flow = Flow.begin();
-  Timeline.startSync('$debugLabel: start', flow: flow);
-  final ReceivePort resultPort = new ReceivePort();
-  Timeline.finishSync();
-  final Isolate isolate = await Isolate.spawn(
-    _spawn,
-    new _IsolateConfiguration<Q, R>(
-      callback,
-      message,
-      resultPort.sendPort,
-      debugLabel,
-      flow.id,
-    ),
-    errorsAreFatal: true,
-    onExit: resultPort.sendPort,
-  );
-  final R result = await resultPort.first;
-  Timeline.startSync('$debugLabel: end', flow: Flow.end(flow.id));
-  resultPort.close();
-  isolate.kill();
-  Timeline.finishSync();
-  return result;
-}
-
-@immutable
-class _IsolateConfiguration<Q, R> {
-  const _IsolateConfiguration(
-    this.callback,
-    this.message,
-    this.resultPort,
-    this.debugLabel,
-    this.flowId,
-  );
-  final ComputeCallback<Q, R> callback;
-  final Q message;
-  final SendPort resultPort;
-  final String debugLabel;
-  final int flowId;
-
-  R apply() => callback(message);
-}
-
-void _spawn<Q, R>(_IsolateConfiguration<Q, R> configuration) {
-  R result;
-  Timeline.timeSync(
-    '${configuration.debugLabel}',
-    () {
-      result = configuration.apply();
-    },
-    flow: Flow.step(configuration.flowId),
-  );
-  Timeline.timeSync(
-    '${configuration.debugLabel}: returning result',
-    () { configuration.resultPort.send(result); },
-    flow: Flow.step(configuration.flowId),
-  );
+/// On native platforms `await compute(fun, message)` is equivalent to
+/// `await Isolate.run(() => fun(message))`. See also [Isolate.run].
+///
+/// The `debugLabel` - if provided - is used as name for the isolate that
+/// executes `callback`. [Timeline] events produced by that isolate will have
+/// the name associated with them. This is useful when profiling an application.
+Future<R> compute<M, R>(ComputeCallback<M, R> callback, M message, {String? debugLabel}) {
+  return isolates.compute<M, R>(callback, message, debugLabel: debugLabel);
 }

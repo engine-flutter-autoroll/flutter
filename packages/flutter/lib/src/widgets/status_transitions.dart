@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,7 @@ import 'framework.dart';
 /// A widget that rebuilds when the given animation changes status.
 abstract class StatusTransitionWidget extends StatefulWidget {
   /// Initializes fields for subclasses.
-  ///
-  /// The [animation] argument must not be null.
-  const StatusTransitionWidget({
-    Key key,
-    @required this.animation
-  }) : assert(animation != null),
-       super(key: key);
+  const StatusTransitionWidget({super.key, required this.animation});
 
   /// The animation to which this widget is listening.
   final Animation<double> animation;
@@ -24,7 +18,7 @@ abstract class StatusTransitionWidget extends StatefulWidget {
   Widget build(BuildContext context);
 
   @override
-  _StatusTransitionState createState() => new _StatusTransitionState();
+  State<StatusTransitionWidget> createState() => _StatusTransitionState();
 }
 
 class _StatusTransitionState extends State<StatusTransitionWidget> {

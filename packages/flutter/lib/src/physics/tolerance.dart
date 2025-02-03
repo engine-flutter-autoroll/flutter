@@ -1,6 +1,8 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import 'package:flutter/foundation.dart';
 
 /// Structure that specifies maximum allowable magnitudes for distances,
 /// durations, and velocity differences to be considered equal.
@@ -12,7 +14,7 @@ class Tolerance {
   const Tolerance({
     this.distance = _epsilonDefault,
     this.time = _epsilonDefault,
-    this.velocity = _epsilonDefault
+    this.velocity = _epsilonDefault,
   });
 
   static const double _epsilonDefault = 1e-3;
@@ -42,5 +44,6 @@ class Tolerance {
   final double velocity;
 
   @override
-  String toString() => 'Tolerance(distance: ±$distance, time: ±$time, velocity: ±$velocity)';
+  String toString() =>
+      '${objectRuntimeType(this, 'Tolerance')}(distance: ±$distance, time: ±$time, velocity: ±$velocity)';
 }

@@ -1,6 +1,13 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+/// @docImport 'package:flutter/rendering.dart';
+/// @docImport 'package:flutter/widgets.dart';
+///
+/// @docImport 'binding.dart';
+/// @docImport 'ticker.dart';
+library;
 
 import 'package:flutter/foundation.dart';
 
@@ -25,10 +32,8 @@ import 'package:flutter/foundation.dart';
 ///
 ///  * [debugProfilePaintsEnabled], which does something similar for
 ///    painting but using the timeline view.
-///
 ///  * [debugPrintLayouts], which does something similar for layout but using
 ///    console output.
-///
 ///  * The discussions at [WidgetsBinding.drawFrame] and at
 ///    [SchedulerBinding.handleBeginFrame].
 bool debugPrintBeginFrameBanner = false;
@@ -50,18 +55,31 @@ bool debugPrintEndFrameBanner = false;
 /// [debugPrintScheduleBuildForStacks].
 bool debugPrintScheduleFrameStacks = false;
 
+/// Record timeline trace events for post-frame callbacks.
+///
+/// When this flag is set to false (the default), the developer timeline
+/// records when post-frame callbacks are running, but it does not tell you any
+/// information about how that time is spent within specific callbacks:
+///
+/// ![](https://flutter.github.io/assets-for-api-docs/assets/scheduler/debug_trace_post_frame_callbacks_off.png)
+///
+/// When this flag is set to true, timeline events will be recorded for each
+/// post-frame callback that runs, like so:
+///
+/// ![](https://flutter.github.io/assets-for-api-docs/assets/scheduler/debug_trace_post_frame_callbacks_on.png)
+bool debugTracePostFrameCallbacks = false;
+
 /// Returns true if none of the scheduler library debug variables have been changed.
 ///
 /// This function is used by the test framework to ensure that debug variables
 /// haven't been inadvertently changed.
 ///
-/// See [https://docs.flutter.io/flutter/scheduler/scheduler-library.html] for
-/// a complete list.
+/// See [the scheduler library](scheduler/scheduler-library.html) for a complete
+/// list.
 bool debugAssertAllSchedulerVarsUnset(String reason) {
   assert(() {
-    if (debugPrintBeginFrameBanner ||
-        debugPrintEndFrameBanner) {
-      throw new FlutterError(reason);
+    if (debugPrintBeginFrameBanner || debugPrintEndFrameBanner) {
+      throw FlutterError(reason);
     }
     return true;
   }());

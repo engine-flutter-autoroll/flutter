@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,89 +6,113 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 
 int seed = 0;
 
 void main() {
-  runApp(new MaterialApp(
-    title: 'Text tester',
-    home: const Home(),
-    routes: <String, WidgetBuilder>{
-      'underlines': (BuildContext context) => const Underlines(),
-      'fallback': (BuildContext context) => const Fallback(),
-      'bidi': (BuildContext context) => const Bidi(),
-      'fuzzer': (BuildContext context) => new Fuzzer(seed: seed),
-      'zalgo': (BuildContext context) => new Zalgo(seed: seed),
-      'painting': (BuildContext context) => new Painting(seed: seed),
-    },
-  ));
+  runApp(
+    MaterialApp(
+      title: 'Text tester',
+      home: const Home(),
+      routes: <String, WidgetBuilder>{
+        'underlines': (BuildContext context) => const Underlines(),
+        'fallback': (BuildContext context) => const Fallback(),
+        'bidi': (BuildContext context) => const Bidi(),
+        'fuzzer': (BuildContext context) => Fuzzer(seed: seed),
+        'zalgo': (BuildContext context) => Zalgo(seed: seed),
+        'painting': (BuildContext context) => Painting(seed: seed),
+      },
+    ),
+  );
 }
 
 class Home extends StatefulWidget {
-  const Home({ Key key }) : super(key: key);
+  const Home({super.key});
 
   @override
-  _HomeState createState() => new _HomeState();
+  State<Home> createState() => _HomeState();
 }
 
 class _HomeState extends State<Home> {
   @override
   Widget build(BuildContext context) {
-    return new Material(
-      child: new Column(
+    return Material(
+      child: Column(
         children: <Widget>[
-          new Expanded(
-            child: new Column(
+          Expanded(
+            child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: <Widget>[
-                new FlatButton(
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.red.shade800,
+                  ),
+                  onPressed: () {
+                    Navigator.pushNamed(context, 'underlines');
+                  },
                   child: const Text('Test Underlines'),
-                  color: Colors.red.shade800,
-                  textColor: Colors.white,
-                  onPressed: () { Navigator.pushNamed(context, 'underlines'); },
                 ),
-                new FlatButton(
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.orange.shade700,
+                  ),
+                  onPressed: () {
+                    Navigator.pushNamed(context, 'fallback');
+                  },
                   child: const Text('Test Font Fallback'),
-                  color: Colors.orange.shade700,
-                  textColor: Colors.white,
-                  onPressed: () { Navigator.pushNamed(context, 'fallback'); },
                 ),
-                new FlatButton(
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.black,
+                    backgroundColor: Colors.yellow.shade700,
+                  ),
+                  onPressed: () {
+                    Navigator.pushNamed(context, 'bidi');
+                  },
                   child: const Text('Test Bidi Formatting'),
-                  color: Colors.yellow.shade700,
-                  textColor: Colors.black,
-                  onPressed: () { Navigator.pushNamed(context, 'bidi'); },
                 ),
-                new FlatButton(
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.black,
+                    backgroundColor: Colors.green.shade400,
+                  ),
+                  onPressed: () {
+                    Navigator.pushNamed(context, 'fuzzer');
+                  },
                   child: const Text('TextSpan Fuzzer'),
-                  color: Colors.green.shade400,
-                  textColor: Colors.black,
-                  onPressed: () { Navigator.pushNamed(context, 'fuzzer'); },
                 ),
-                new FlatButton(
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.blue.shade400,
+                  ),
+                  onPressed: () {
+                    Navigator.pushNamed(context, 'zalgo');
+                  },
                   child: const Text('Diacritics Fuzzer'),
-                  color: Colors.blue.shade400,
-                  textColor: Colors.white,
-                  onPressed: () { Navigator.pushNamed(context, 'zalgo'); },
                 ),
-                new FlatButton(
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.black,
+                    backgroundColor: Colors.purple.shade200,
+                  ),
+                  onPressed: () {
+                    Navigator.pushNamed(context, 'painting');
+                  },
                   child: const Text('Painting Fuzzer'),
-                  color: Colors.purple.shade200,
-                  textColor: Colors.black,
-                  onPressed: () { Navigator.pushNamed(context, 'painting'); },
                 ),
               ],
             ),
           ),
-          new Padding(
+          Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20.0),
-            child: new Slider(
-              min: 0.0,
+            child: Slider(
               max: 1024.0,
               value: seed.toDouble(),
-              label: '${seed.round()}',
+              label: '$seed',
               divisions: 1025,
               onChanged: (double value) {
                 setState(() {
@@ -97,9 +121,9 @@ class _HomeState extends State<Home> {
               },
             ),
           ),
-          new Padding(
+          Padding(
             padding: const EdgeInsets.only(bottom: 10.0),
-            child: new Text('Random seed for fuzzers: $seed'),
+            child: Text('Random seed for fuzzers: $seed'),
           ),
         ],
       ),
@@ -108,24 +132,24 @@ class _HomeState extends State<Home> {
 }
 
 class Fuzzer extends StatefulWidget {
-  const Fuzzer({ Key key, this.seed }) : super(key: key);
+  const Fuzzer({super.key, required this.seed});
 
   final int seed;
 
   @override
-  _FuzzerState createState() => new _FuzzerState();
+  State<Fuzzer> createState() => _FuzzerState();
 }
 
 class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
   TextSpan _textSpan = const TextSpan(text: 'Welcome to the Flutter text fuzzer.');
-  Ticker _ticker;
-  math.Random _random;
+  late final Ticker _ticker = createTicker(_updateTextSpan)..start();
+  late final math.Random _random = math.Random(
+    widget.seed,
+  ); // providing a seed is important for reproducibility;
 
   @override
   void initState() {
     super.initState();
-    _random = new math.Random(widget.seed); // providing a seed is important for reproducibility
-    _ticker = createTicker(_updateTextSpan)..start();
     _updateTextSpan(null);
   }
 
@@ -135,41 +159,45 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
     super.dispose();
   }
 
-  void _updateTextSpan(Duration duration) {
+  void _updateTextSpan(Duration? duration) {
     setState(() {
       _textSpan = _fiddleWith(_textSpan);
     });
   }
 
   TextSpan _fiddleWith(TextSpan node) {
-    return new TextSpan(
+    return TextSpan(
       text: _fiddleWithText(node.text),
       style: _fiddleWithStyle(node.style),
-      children: _fiddleWithChildren(node.children?.map((TextSpan child) => _fiddleWith(child))?.toList() ?? <TextSpan>[]),
+      children: _fiddleWithChildren(
+        node.children?.map((InlineSpan child) => _fiddleWith(child as TextSpan)).toList() ??
+            <TextSpan>[],
+      ),
     );
   }
 
-  String _fiddleWithText(String text) {
-    if (_random.nextInt(10) > 0)
+  String? _fiddleWithText(String? text) {
+    if (_random.nextInt(10) > 0) {
       return text;
+    }
     return _createRandomText();
   }
 
-  TextStyle _fiddleWithStyle(TextStyle style) {
+  TextStyle? _fiddleWithStyle(TextStyle? style) {
     if (style == null) {
       switch (_random.nextInt(20)) {
         case 0:
           return const TextStyle();
         case 1:
-          style = const TextStyle();
-          break; // and mutate it below
+          style = const TextStyle(); // is mutated below
         default:
           return null;
       }
     }
-    if (_random.nextInt(200) == 0)
+    if (_random.nextInt(200) == 0) {
       return null;
-    return new TextStyle(
+    }
+    return TextStyle(
       color: _fiddleWithColor(style.color),
       decoration: _fiddleWithDecoration(style.decoration),
       decorationColor: _fiddleWithColor(style.decorationColor),
@@ -185,11 +213,13 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
     );
   }
 
-  Color _fiddleWithColor(Color value) {
+  Color? _fiddleWithColor(Color? value) {
     switch (_random.nextInt(10)) {
       case 0:
-        if (value == null)
-          return pickFromList(_random, Colors.primaries)[(_random.nextInt(9) + 1) * 100];
+        if (value == null) {
+          return pickFromList<MaterialColor>(_random, Colors.primaries)[(_random.nextInt(9) + 1) *
+              100];
+        }
         switch (_random.nextInt(4)) {
           case 0:
             return value.withAlpha(value.alpha + _random.nextInt(10) - 5);
@@ -200,16 +230,16 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
           case 3:
             return value.withBlue(value.blue + _random.nextInt(10) - 5);
         }
-        break;
       case 1:
         return null;
     }
     return value;
   }
 
-  TextDecoration _fiddleWithDecoration(TextDecoration value) {
-    if (_random.nextInt(10) > 0)
+  TextDecoration? _fiddleWithDecoration(TextDecoration? value) {
+    if (_random.nextInt(10) > 0) {
       return value;
+    }
     switch (_random.nextInt(100)) {
       case 10:
         return TextDecoration.underline;
@@ -224,48 +254,61 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
       case 30:
         return TextDecoration.overline;
       case 90:
-        return new TextDecoration.combine(<TextDecoration>[TextDecoration.underline, TextDecoration.lineThrough]);
+        return TextDecoration.combine(<TextDecoration>[
+          TextDecoration.underline,
+          TextDecoration.lineThrough,
+        ]);
       case 91:
-        return new TextDecoration.combine(<TextDecoration>[TextDecoration.underline, TextDecoration.overline]);
+        return TextDecoration.combine(<TextDecoration>[
+          TextDecoration.underline,
+          TextDecoration.overline,
+        ]);
       case 92:
-        return new TextDecoration.combine(<TextDecoration>[TextDecoration.lineThrough, TextDecoration.overline]);
+        return TextDecoration.combine(<TextDecoration>[
+          TextDecoration.lineThrough,
+          TextDecoration.overline,
+        ]);
       case 93:
-        return new TextDecoration.combine(<TextDecoration>[TextDecoration.underline, TextDecoration.lineThrough, TextDecoration.overline]);
+        return TextDecoration.combine(<TextDecoration>[
+          TextDecoration.underline,
+          TextDecoration.lineThrough,
+          TextDecoration.overline,
+        ]);
     }
     return null;
   }
 
-  TextDecorationStyle _fiddleWithDecorationStyle(TextDecorationStyle value) {
+  TextDecorationStyle? _fiddleWithDecorationStyle(TextDecorationStyle? value) {
     switch (_random.nextInt(10)) {
       case 0:
         return null;
       case 1:
-        return pickFromList(_random, TextDecorationStyle.values);
+        return pickFromList<TextDecorationStyle>(_random, TextDecorationStyle.values);
     }
     return value;
   }
 
-  FontWeight _fiddleWithFontWeight(FontWeight value) {
+  FontWeight? _fiddleWithFontWeight(FontWeight? value) {
     switch (_random.nextInt(10)) {
       case 0:
         return null;
       case 1:
-        return pickFromList(_random, FontWeight.values);
+        return pickFromList<FontWeight>(_random, FontWeight.values);
     }
     return value;
   }
 
-  FontStyle _fiddleWithFontStyle(FontStyle value) {
+  FontStyle? _fiddleWithFontStyle(FontStyle? value) {
     switch (_random.nextInt(10)) {
       case 0:
         return null;
       case 1:
-        return pickFromList(_random, FontStyle.values);
+        return pickFromList<FontStyle>(_random, FontStyle.values);
     }
     return value;
   }
 
-  String _fiddleWithFontFamily(String value) {
+  String? _fiddleWithFontFamily(String? value) {
     switch (_random.nextInt(10)) {
       case 0:
         return null;
@@ -289,11 +332,12 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
     return value;
   }
 
-  double _fiddleWithDouble(double value, double defaultValue, double max) {
+  double? _fiddleWithDouble(double? value, double defaultValue, double max) {
     switch (_random.nextInt(10)) {
       case 0:
-        if (value == null)
+        if (value == null) {
           return math.min(defaultValue * (0.95 + _random.nextDouble() * 0.1), max);
+        }
         return math.min(value * (0.51 + _random.nextDouble()), max);
       case 1:
         return null;
@@ -301,7 +345,7 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
     return value;
   }
 
-  List<TextSpan> _fiddleWithChildren(List<TextSpan> children) {
+  List<TextSpan>? _fiddleWithChildren(List<TextSpan> children) {
     switch (_random.nextInt(100)) {
       case 0:
       case 1:
@@ -309,41 +353,42 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
       case 3:
       case 4:
         children.insert(_random.nextInt(children.length + 1), _createRandomTextSpan());
-        break;
       case 10:
         children = children.reversed.toList();
-        break;
       case 20:
-        if (children.isEmpty)
+        if (children.isEmpty) {
           break;
-        if (_random.nextInt(10) > 0)
+        }
+        if (_random.nextInt(10) > 0) {
           break;
+        }
         final int index = _random.nextInt(children.length);
-        if (depthOf(children[index]) < 3)
+        if (depthOf(children[index]) < 3) {
           children.removeAt(index);
-        break;
+        }
     }
-    if (children.isEmpty && _random.nextBool())
+    if (children.isEmpty && _random.nextBool()) {
       return null;
+    }
     return children;
   }
 
   int depthOf(TextSpan node) {
-    if (node.children == null || node.children.isEmpty)
+    if (node.children == null || (node.children?.isEmpty ?? false)) {
       return 0;
+    }
     int result = 0;
-    for (TextSpan child in node.children)
+    for (final TextSpan child in node.children!.cast<TextSpan>()) {
       result = math.max(result, depthOf(child));
+    }
     return result;
   }
 
   TextSpan _createRandomTextSpan() {
-    return new TextSpan(
-      text: _createRandomText(),
-    );
+    return TextSpan(text: _createRandomText());
   }
 
-  String _createRandomText() {
+  String? _createRandomText() {
     switch (_random.nextInt(90)) {
       case 0:
       case 1:
@@ -421,7 +466,7 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
       case 49:
         return '𠜎𠜱𠝹𠱓𠱸𠲖𠳏𠳕𠴕𠵼𠵿𠸎𠸏𠹷𠺝𠺢𠻗𠻹𠻺𠼭𠼮𠽌𠾴𠾼𠿪𡁜𡁯𡁵𡁶𡁻𡃁𡃉𡇙𢃇𢞵𢫕𢭃𢯊𢱑𢱕𢳂𢴈𢵌𢵧𢺳𣲷𤓓𤶸𤷪𥄫𦉘𦟌𦧲𦧺𧨾𨅝𨈇𨋢𨳊𨳍𨳒𩶘'; // http://www.i18nguy.com/unicode/supplementary-test.html
       case 50: // any random character
-        return new String.fromCharCode(_random.nextInt(0x10FFFF + 1));
+        return String.fromCharCode(_random.nextInt(0x10FFFF + 1));
       case 51:
         return '\u00DF'; // SS
       case 52:
@@ -443,12 +488,13 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
       case 61: // random BMP character
       case 62: // random BMP character
       case 63: // random BMP character
-        return new String.fromCharCode(_random.nextInt(0xFFFF));
+        return String.fromCharCode(_random.nextInt(0xFFFF));
       case 64: // random emoji
       case 65: // random emoji
-        return new String.fromCharCode(0x1F000 + _random.nextInt(0x9FF));
+        return String.fromCharCode(0x1F000 + _random.nextInt(0x9FF));
       case 66:
-        return 'Z{' + zalgo(_random, _random.nextInt(4) + 2) + '}Z';
+        final String value = zalgo(_random, _random.nextInt(4) + 2);
+        return 'Z{$value}Z';
       case 67:
         return 'Οὐχὶ ταὐτὰ παρίσταταί μοι γιγνώσκειν';
       case 68:
@@ -472,13 +518,15 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
       case 80:
       case 81:
       case 82:
-        final StringBuffer buffer = new StringBuffer();
+        final StringBuffer buffer = StringBuffer();
         final int targetLength = _random.nextInt(8) + 1;
         for (int index = 0; index < targetLength; index += 1) {
           if (_random.nextInt(20) > 0) {
             buffer.writeCharCode(randomCharacter(_random));
           } else {
-            buffer.write(zalgo(_random, _random.nextInt(2) + 1, includeSpacingCombiningMarks: true));
+            buffer.write(
+              zalgo(_random, _random.nextInt(2) + 1, includeSpacingCombiningMarks: true),
+            );
           }
         }
         return buffer.toString();
@@ -488,22 +536,22 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return new Container(
+    return ColoredBox(
       color: Colors.black,
-      child: new Column(
+      child: Column(
         children: <Widget>[
-          new Expanded(
-            child: new SingleChildScrollView(
-              child: new SafeArea(
-                child: new Padding(
+          Expanded(
+            child: SingleChildScrollView(
+              child: SafeArea(
+                child: Padding(
                   padding: const EdgeInsets.all(10.0),
-                  child: new RichText(text: _textSpan),
+                  child: RichText(text: _textSpan),
                 ),
               ),
             ),
           ),
-          new Material(
-            child: new SwitchListTile(
+          Material(
+            child: SwitchListTile(
               title: const Text('Enable Fuzzer'),
               value: _ticker.isActive,
               onChanged: (bool value) {
@@ -515,7 +563,7 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
                     debugPrint(_textSpan.toStringDeep());
                   }
                 });
-              }
+              },
             ),
           ),
         ],
@@ -525,17 +573,16 @@ class _FuzzerState extends State<Fuzzer> with SingleTickerProviderStateMixin {
 }
 
 class Underlines extends StatefulWidget {
-  const Underlines({ Key key }) : super(key: key);
+  const Underlines({super.key});
 
   @override
-  _UnderlinesState createState() => new _UnderlinesState();
+  State<Underlines> createState() => _UnderlinesState();
 }
 
 class _UnderlinesState extends State<Underlines> {
-
   String _text = 'i';
 
-  final TextStyle _style = new TextStyle(
+  final TextStyle _style = TextStyle(
     inherit: false,
     color: Colors.yellow.shade200,
     fontSize: 48.0,
@@ -543,72 +590,93 @@ class _UnderlinesState extends State<Underlines> {
     decorationColor: Colors.yellow.shade500,
   );
 
-  Widget _wrap(TextDecorationStyle style) {
-    return new Align(
+  Widget _wrap(TextDecorationStyle? style) {
+    return Align(
       alignment: Alignment.centerLeft,
       heightFactor: 1.0,
-      child: new Container(
-        decoration: const BoxDecoration(color: Color(0xFF333333), border: Border(right: BorderSide(color: Colors.white, width: 0.0))),
-        child: new Text(_text, style: style != null ? _style.copyWith(decoration: TextDecoration.underline, decorationStyle: style) : _style),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF333333),
+          border: Border(right: BorderSide(color: Colors.white, width: 0.0)),
+        ),
+        child: Text(
+          _text,
+          style:
+              style != null
+                  ? _style.copyWith(decoration: TextDecoration.underline, decorationStyle: style)
+                  : _style,
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> lines = <Widget>[_wrap(null)];
-    for (TextDecorationStyle style in TextDecorationStyle.values)
-      lines.add(_wrap(style));
     final Size size = MediaQuery.of(context).size;
-    return new Container(
+    return ColoredBox(
       color: Colors.black,
-      child: new Column(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          new Expanded(
-            child: new SingleChildScrollView(
-              child: new Padding(
-                padding: new EdgeInsets.symmetric(
+          Expanded(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
                   horizontal: size.width * 0.1,
                   vertical: size.height * 0.1,
                 ),
-                child: new ListBody(
-                  children: lines,
-                )
+                child: ListBody(
+                  children: <Widget>[
+                    _wrap(null),
+                    for (final TextDecorationStyle style in TextDecorationStyle.values)
+                      _wrap(style),
+                  ],
+                ),
               ),
             ),
           ),
-          new Material(
-            child: new ButtonBar(
-              children: <Widget>[
-                new FlatButton(
-                  onPressed: () {
-                    setState(() {
-                      _text += 'i';
-                    });
-                  },
-                  color: Colors.yellow,
-                  child: const Text('ADD i'),
-                ),
-                new FlatButton(
-                  onPressed: () {
-                    setState(() {
-                      _text += 'w';
-                    });
-                  },
-                  color: Colors.yellow,
-                  child: const Text('ADD w'),
-                ),
-                new FlatButton(
-                  onPressed: _text == '' ? null : () {
-                    setState(() {
-                      _text = _text.substring(0, _text.length - 1);
-                    });
-                  },
-                  color: Colors.red,
-                  textColor: Colors.white,
-                  child: const Text('REMOVE'),
-                ),
-              ],
+          Material(
+            child: Container(
+              alignment: AlignmentDirectional.centerEnd,
+              padding: const EdgeInsets.all(8),
+              child: OverflowBar(
+                spacing: 8,
+                children: <Widget>[
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _text += 'i';
+                      });
+                    },
+                    style: TextButton.styleFrom(backgroundColor: Colors.yellow),
+                    child: const Text('ADD i'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _text += 'w';
+                      });
+                    },
+                    style: TextButton.styleFrom(backgroundColor: Colors.yellow),
+                    child: const Text('ADD w'),
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.red,
+                    ),
+                    onPressed:
+                        _text == ''
+                            ? null
+                            : () {
+                              setState(() {
+                                _text = _text.substring(0, _text.length - 1);
+                              });
+                            },
+                    child: const Text('REMOVE'),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -618,14 +686,15 @@ class _UnderlinesState extends State<Underlines> {
 }
 
 class Fallback extends StatefulWidget {
-  const Fallback({ Key key }) : super(key: key);
+  const Fallback({super.key});
 
   @override
-  _FallbackState createState() => new _FallbackState();
+  State<Fallback> createState() => _FallbackState();
 }
 
 class _FallbackState extends State<Fallback> {
-  static const String multiScript = 'A1!aÀàĀāƁƀḂⱠꜲꬰəͲἀἏЀЖԠꙐꙮՁخ‎ࡔࠇܦআਉઐଘஇఘಧൺඣᭆᯔᮯ᳇ꠈᜅᩌꪈ༇ꥄꡙꫤ᧰៘꧁꧂ᜰᨏᯤᢆᣭᗗꗃⵞ𐒎߷ጩꬤ𖠺‡₩℻Ⅷ↹⋇⏳ⓖ╋▒◛⚧⑆שׁ🅕㊼龜ポ䷤🂡';
+  static const String multiScript =
+      'A1!aÀàĀāƁƀḂⱠꜲꬰəͲἀἏЀЖԠꙐꙮՁخ‎ࡔࠇܦআਉઐଘஇఘಧൺඣᭆᯔᮯ᳇ꠈᜅᩌꪈ༇ꥄꡙꫤ᧰៘꧁꧂ᜰᨏᯤᢆᣭᗗꗃⵞ𐒎߷ጩꬤ𖠺‡₩℻Ⅷ↹⋇⏳ⓖ╋▒◛⚧⑆שׁ🅕㊼龜ポ䷤🂡';
 
   static const List<String> androidFonts = <String>[
     'sans-serif',
@@ -638,53 +707,50 @@ class _FallbackState extends State<Fallback> {
     'sans-serif-smallcaps',
   ];
 
-  static const TextStyle style = TextStyle(
-    inherit: false,
-    color: Colors.white,
-  );
+  static const TextStyle style = TextStyle(inherit: false, color: Colors.white);
 
   double _fontSize = 3.0;
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> lines = <Widget>[];
-    for (String font in androidFonts)
-      lines.add(new Text(multiScript, style: style.copyWith(fontFamily: font, fontSize: math.exp(_fontSize))));
     final Size size = MediaQuery.of(context).size;
-    return new Container(
+    return ColoredBox(
       color: Colors.black,
-      child: new Column(
+      child: Column(
         children: <Widget>[
-          new Expanded(
-            child: new SingleChildScrollView(
+          Expanded(
+            child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: new SingleChildScrollView(
-                child: new Padding(
-                  padding: new EdgeInsets.symmetric(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
                     horizontal: size.width * 0.1,
                     vertical: size.height * 0.1,
                   ),
-                  child: new IntrinsicWidth(
-                    child: new ListBody(
-                      children: lines,
+                  child: IntrinsicWidth(
+                    child: ListBody(
+                      children: <Widget>[
+                        for (final String font in androidFonts)
+                          Text(
+                            multiScript,
+                            style: style.copyWith(fontFamily: font, fontSize: math.exp(_fontSize)),
+                          ),
+                      ],
                     ),
-                  )
+                  ),
                 ),
               ),
             ),
           ),
-          new Material(
-            child: new Padding(
+          Material(
+            child: Padding(
               padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 20.0),
-              child: new Row(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 10.0),
-                    child: Text('Font size'),
-                  ),
-                  new Expanded(
-                    child: new Slider(
+                  const Padding(padding: EdgeInsets.only(bottom: 10.0), child: Text('Font size')),
+                  Expanded(
+                    child: Slider(
                       min: 2.0,
                       max: 5.0,
                       value: _fontSize,
@@ -707,74 +773,211 @@ class _FallbackState extends State<Fallback> {
 }
 
 class Bidi extends StatefulWidget {
-  const Bidi({ Key key }) : super(key: key);
+  const Bidi({super.key});
 
   @override
-  _BidiState createState() => new _BidiState();
+  State<Bidi> createState() => _BidiState();
 }
 
 class _BidiState extends State<Bidi> {
   @override
   Widget build(BuildContext context) {
-    return new Container(
+    return ColoredBox(
       color: Colors.black,
-      child: new ListView(
+      child: ListView(
         padding: const EdgeInsets.symmetric(vertical: 40.0, horizontal: 20.0),
         children: <Widget>[
-          new RichText(
-            text: new TextSpan(
+          RichText(
+            text: TextSpan(
               children: <TextSpan>[
-                new TextSpan(text: 'abc', style: new TextStyle(fontWeight: FontWeight.w100, fontSize: 40.0, color: Colors.blue.shade100)),
-                new TextSpan(text: 'ghi', style: new TextStyle(fontWeight: FontWeight.w400, fontSize: 40.0, color: Colors.blue.shade500)),
-                new TextSpan(text: 'mno', style: new TextStyle(fontWeight: FontWeight.w900, fontSize: 40.0, color: Colors.blue.shade900)),
-                new TextSpan(text: 'LKJ', style: new TextStyle(fontWeight: FontWeight.w500, fontSize: 40.0, color: Colors.blue.shade700)),
-                new TextSpan(text: 'FED', style: new TextStyle(fontWeight: FontWeight.w300, fontSize: 40.0, color: Colors.blue.shade300)),
+                TextSpan(
+                  text: 'abc',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w100,
+                    fontSize: 40.0,
+                    color: Colors.blue.shade100,
+                  ),
+                ),
+                TextSpan(
+                  text: 'ghi',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w400,
+                    fontSize: 40.0,
+                    color: Colors.blue.shade500,
+                  ),
+                ),
+                TextSpan(
+                  text: 'mno',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 40.0,
+                    color: Colors.blue.shade900,
+                  ),
+                ),
+                TextSpan(
+                  text: 'LKJ',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 40.0,
+                    color: Colors.blue.shade700,
+                  ),
+                ),
+                TextSpan(
+                  text: 'FED',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w300,
+                    fontSize: 40.0,
+                    color: Colors.blue.shade300,
+                  ),
+                ),
               ],
             ),
             textAlign: TextAlign.center,
             textDirection: TextDirection.ltr,
           ),
-          new RichText(
-            text: new TextSpan(
+          RichText(
+            text: TextSpan(
               children: <TextSpan>[
-                new TextSpan(text: '${Unicode.LRO}abc', style: new TextStyle(fontWeight: FontWeight.w100, fontSize: 40.0, color: Colors.blue.shade100)),
-                new TextSpan(text: '${Unicode.RLO}DEF', style: new TextStyle(fontWeight: FontWeight.w300, fontSize: 40.0, color: Colors.blue.shade300)),
-                new TextSpan(text: '${Unicode.LRO}ghi', style: new TextStyle(fontWeight: FontWeight.w400, fontSize: 40.0, color: Colors.blue.shade500)),
-                new TextSpan(text: '${Unicode.RLO}JKL', style: new TextStyle(fontWeight: FontWeight.w500, fontSize: 40.0, color: Colors.blue.shade700)),
-                new TextSpan(text: '${Unicode.LRO}mno', style: new TextStyle(fontWeight: FontWeight.w900, fontSize: 40.0, color: Colors.blue.shade900)),
+                TextSpan(
+                  text: '${Unicode.LRO}abc',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w100,
+                    fontSize: 40.0,
+                    color: Colors.blue.shade100,
+                  ),
+                ),
+                TextSpan(
+                  text: '${Unicode.RLO}DEF',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w300,
+                    fontSize: 40.0,
+                    color: Colors.blue.shade300,
+                  ),
+                ),
+                TextSpan(
+                  text: '${Unicode.LRO}ghi',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w400,
+                    fontSize: 40.0,
+                    color: Colors.blue.shade500,
+                  ),
+                ),
+                TextSpan(
+                  text: '${Unicode.RLO}JKL',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 40.0,
+                    color: Colors.blue.shade700,
+                  ),
+                ),
+                TextSpan(
+                  text: '${Unicode.LRO}mno',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 40.0,
+                    color: Colors.blue.shade900,
+                  ),
+                ),
               ],
             ),
             textAlign: TextAlign.center,
             textDirection: TextDirection.ltr,
           ),
           const SizedBox(height: 40.0),
-          new RichText(
-            text: new TextSpan(
+          RichText(
+            text: TextSpan(
               children: <TextSpan>[
-                new TextSpan(text: '${Unicode.LRO}abc${Unicode.RLO}D', style: new TextStyle(fontWeight: FontWeight.w100, fontSize: 40.0, color: Colors.orange.shade100)),
-                new TextSpan(text: 'EF${Unicode.LRO}gh', style: new TextStyle(fontWeight: FontWeight.w500, fontSize: 50.0, color: Colors.orange.shade500)),
-                new TextSpan(text: 'i${Unicode.RLO}JKL${Unicode.LRO}mno', style: new TextStyle(fontWeight: FontWeight.w900, fontSize: 60.0, color: Colors.orange.shade900)),
+                TextSpan(
+                  text: '${Unicode.LRO}abc${Unicode.RLO}D',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w100,
+                    fontSize: 40.0,
+                    color: Colors.orange.shade100,
+                  ),
+                ),
+                TextSpan(
+                  text: 'EF${Unicode.LRO}gh',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 50.0,
+                    color: Colors.orange.shade500,
+                  ),
+                ),
+                TextSpan(
+                  text: 'i${Unicode.RLO}JKL${Unicode.LRO}mno',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 60.0,
+                    color: Colors.orange.shade900,
+                  ),
+                ),
               ],
             ),
             textAlign: TextAlign.center,
             textDirection: TextDirection.ltr,
           ),
-          new RichText(
-            text: new TextSpan(
+          RichText(
+            text: TextSpan(
               children: <TextSpan>[
-                new TextSpan(text: 'abc', style: new TextStyle(fontWeight: FontWeight.w100, fontSize: 40.0, color: Colors.orange.shade100)),
-                new TextSpan(text: 'gh', style: new TextStyle(fontWeight: FontWeight.w500, fontSize: 50.0, color: Colors.orange.shade500)),
-                new TextSpan(text: 'imno', style: new TextStyle(fontWeight: FontWeight.w900, fontSize: 60.0, color: Colors.orange.shade900)),
-                new TextSpan(text: 'LKJ', style: new TextStyle(fontWeight: FontWeight.w900, fontSize: 60.0, color: Colors.orange.shade900)),
-                new TextSpan(text: 'FE', style: new TextStyle(fontWeight: FontWeight.w500, fontSize: 50.0, color: Colors.orange.shade500)),
-                new TextSpan(text: 'D', style: new TextStyle(fontWeight: FontWeight.w100, fontSize: 40.0, color: Colors.orange.shade100)),
+                TextSpan(
+                  text: 'abc',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w100,
+                    fontSize: 40.0,
+                    color: Colors.orange.shade100,
+                  ),
+                ),
+                TextSpan(
+                  text: 'gh',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 50.0,
+                    color: Colors.orange.shade500,
+                  ),
+                ),
+                TextSpan(
+                  text: 'imno',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 60.0,
+                    color: Colors.orange.shade900,
+                  ),
+                ),
+                TextSpan(
+                  text: 'LKJ',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 60.0,
+                    color: Colors.orange.shade900,
+                  ),
+                ),
+                TextSpan(
+                  text: 'FE',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 50.0,
+                    color: Colors.orange.shade500,
+                  ),
+                ),
+                TextSpan(
+                  text: 'D',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w100,
+                    fontSize: 40.0,
+                    color: Colors.orange.shade100,
+                  ),
+                ),
               ],
             ),
             textAlign: TextAlign.center,
             textDirection: TextDirection.ltr,
           ),
           const SizedBox(height: 40.0),
-          const Text('The pairs of lines above should match exactly.', textAlign: TextAlign.center, style: TextStyle(inherit: false, fontSize: 14.0, color: Colors.white)),
+          const Text(
+            'The pairs of lines above should match exactly.',
+            textAlign: TextAlign.center,
+            style: TextStyle(inherit: false, fontSize: 14.0, color: Colors.white),
+          ),
         ],
       ),
     );
@@ -782,24 +985,23 @@ class _BidiState extends State<Bidi> {
 }
 
 class Zalgo extends StatefulWidget {
-  const Zalgo({ Key key, this.seed }) : super(key: key);
+  const Zalgo({super.key, required this.seed});
 
   final int seed;
 
   @override
-  _ZalgoState createState() => new _ZalgoState();
+  State<Zalgo> createState() => _ZalgoState();
 }
 
 class _ZalgoState extends State<Zalgo> with SingleTickerProviderStateMixin {
-  String _text;
-  Ticker _ticker;
-  math.Random _random;
+  String? _text;
+  late final Ticker _ticker = createTicker(_update)..start();
+  math.Random _random = math.Random();
 
   @override
   void initState() {
     super.initState();
-    _random = new math.Random(widget.seed); // providing a seed is important for reproducibility
-    _ticker = createTicker(_update)..start();
+    _random = math.Random(widget.seed); // providing a seed is important for reproducibility;
     _update(null);
   }
 
@@ -812,7 +1014,7 @@ class _ZalgoState extends State<Zalgo> with SingleTickerProviderStateMixin {
   bool _allowSpacing = false;
   bool _varyBase = false;
 
-  void _update(Duration duration) {
+  void _update(Duration? duration) {
     setState(() {
       _text = zalgo(
         _random,
@@ -825,28 +1027,24 @@ class _ZalgoState extends State<Zalgo> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return new Container(
+    return ColoredBox(
       color: Colors.black,
-      child: new Column(
+      child: Column(
         children: <Widget>[
-          new Expanded(
-            child: new Center(
-              child: new RichText(
-                text: new TextSpan(
+          Expanded(
+            child: Center(
+              child: RichText(
+                text: TextSpan(
                   text: _text,
-                  style: new TextStyle(
-                    inherit: false,
-                    fontSize: 96.0,
-                    color: Colors.red.shade200,
-                  ),
+                  style: TextStyle(inherit: false, fontSize: 96.0, color: Colors.red.shade200),
                 ),
               ),
             ),
           ),
-          new Material(
-            child: new Column(
+          Material(
+            child: Column(
               children: <Widget>[
-                new SwitchListTile(
+                SwitchListTile(
                   title: const Text('Enable Fuzzer'),
                   value: _ticker.isActive,
                   onChanged: (bool value) {
@@ -859,23 +1057,23 @@ class _ZalgoState extends State<Zalgo> with SingleTickerProviderStateMixin {
                     });
                   },
                 ),
-                new SwitchListTile(
+                SwitchListTile(
                   title: const Text('Allow spacing combining marks'),
                   value: _allowSpacing,
                   onChanged: (bool value) {
                     setState(() {
                       _allowSpacing = value;
-                      _random = new math.Random(widget.seed); // reset for reproducibility
+                      _random = math.Random(widget.seed); // reset for reproducibility
                     });
                   },
                 ),
-                new SwitchListTile(
+                SwitchListTile(
                   title: const Text('Vary base character'),
                   value: _varyBase,
                   onChanged: (bool value) {
                     setState(() {
                       _varyBase = value;
-                      _random = new math.Random(widget.seed); // reset for reproducibility
+                      _random = math.Random(widget.seed); // reset for reproducibility
                     });
                   },
                 ),
@@ -889,24 +1087,23 @@ class _ZalgoState extends State<Zalgo> with SingleTickerProviderStateMixin {
 }
 
 class Painting extends StatefulWidget {
-  const Painting({ Key key, this.seed }) : super(key: key);
+  const Painting({super.key, required this.seed});
 
   final int seed;
 
   @override
-  _PaintingState createState() => new _PaintingState();
+  State<Painting> createState() => _PaintingState();
 }
 
 class _PaintingState extends State<Painting> with SingleTickerProviderStateMixin {
-  String _text;
-  Ticker _ticker;
-  math.Random _random;
+  String? _text;
+  late final Ticker _ticker = createTicker(_update)..start();
+  math.Random _random = math.Random();
 
   @override
   void initState() {
     super.initState();
-    _random = new math.Random(widget.seed); // providing a seed is important for reproducibility
-    _ticker = createTicker(_update)..start();
+    _random = math.Random(widget.seed); // providing a seed is important for reproducibility;
     _update(null);
   }
 
@@ -916,15 +1113,16 @@ class _PaintingState extends State<Painting> with SingleTickerProviderStateMixin
     super.dispose();
   }
 
-  final GlobalKey intrinsicKey = new GlobalKey();
-  final GlobalKey controlKey = new GlobalKey();
+  final GlobalKey intrinsicKey = GlobalKey();
+  final GlobalKey controlKey = GlobalKey();
 
   bool _ellipsize = false;
 
-  void _update(Duration duration) {
+  void _update(Duration? duration) {
     setState(() {
-      final StringBuffer buffer = new StringBuffer();
-      final int targetLength = _random.nextInt(20) + (_ellipsize ? MediaQuery.of(context).size.width.round() : 1);
+      final StringBuffer buffer = StringBuffer();
+      final int targetLength =
+          _random.nextInt(20) + (_ellipsize ? MediaQuery.of(context).size.width.round() : 1);
       for (int index = 0; index < targetLength; index += 1) {
         if (_random.nextInt(5) > 0) {
           buffer.writeCharCode(randomCharacter(_random));
@@ -935,10 +1133,18 @@ class _PaintingState extends State<Painting> with SingleTickerProviderStateMixin
       _text = buffer.toString();
     });
     SchedulerBinding.instance.addPostFrameCallback((Duration duration) {
-      if (mounted && intrinsicKey.currentContext.size.height != controlKey.currentContext.size.height) {
+      if (mounted &&
+          intrinsicKey.currentContext?.size?.height != controlKey.currentContext?.size?.height) {
         debugPrint('Found some text that unexpectedly renders at different heights.');
         debugPrint('Text: $_text');
-        debugPrint(_text.runes.map((int index) => 'U+' + index.toRadixString(16).padLeft(4, '0')).join(' '));
+        debugPrint(
+          _text?.runes
+              .map<String>((int index) {
+                final String hexa = index.toRadixString(16).padLeft(4, '0');
+                return 'U+$hexa';
+              })
+              .join(' '),
+        );
         setState(() {
           _ticker.stop();
         });
@@ -949,29 +1155,30 @@ class _PaintingState extends State<Painting> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     final Size size = MediaQuery.of(context).size;
-    return new Container(
+    return ColoredBox(
       color: Colors.black,
-      child: new Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          new Expanded(
-            child: new Padding(
-              padding: new EdgeInsets.only(top: size.height * 0.1),
-              child: new Stack(
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(top: size.height * 0.1),
+              child: Stack(
                 alignment: Alignment.center,
                 children: <Widget>[
-                  new Positioned(
+                  Positioned(
                     top: 0.0,
                     left: 0.0,
                     right: 0.0,
-                    child: new Align(
+                    child: Align(
                       alignment: Alignment.topCenter,
-                      child: new IntrinsicWidth( // to test shrink-wrap vs rendering
-                        child: new RichText(
+                      child: IntrinsicWidth(
+                        // to test shrink-wrap vs rendering
+                        child: RichText(
                           key: intrinsicKey,
                           textAlign: TextAlign.center,
                           overflow: _ellipsize ? TextOverflow.ellipsis : TextOverflow.clip,
-                          text: new TextSpan(
+                          text: TextSpan(
                             text: _text,
                             style: const TextStyle(
                               inherit: false,
@@ -983,21 +1190,17 @@ class _PaintingState extends State<Painting> with SingleTickerProviderStateMixin
                       ),
                     ),
                   ),
-                  new Positioned(
+                  Positioned(
                     top: 0.0,
                     left: 0.0,
                     right: 0.0,
-                    child: new RichText(
+                    child: RichText(
                       key: controlKey,
                       textAlign: TextAlign.center,
                       overflow: _ellipsize ? TextOverflow.ellipsis : TextOverflow.clip,
-                      text: new TextSpan(
+                      text: TextSpan(
                         text: _text,
-                        style: const TextStyle(
-                          inherit: false,
-                          fontSize: 28.0,
-                          color: Colors.white,
-                        ),
+                        style: const TextStyle(inherit: false, fontSize: 28.0, color: Colors.white),
                       ),
                     ),
                   ),
@@ -1005,10 +1208,11 @@ class _PaintingState extends State<Painting> with SingleTickerProviderStateMixin
               ),
             ),
           ),
-          new Material(
-            child: new Column(
+          Material(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                new SwitchListTile(
+                SwitchListTile(
                   title: const Text('Enable Fuzzer'),
                   value: _ticker.isActive,
                   onChanged: (bool value) {
@@ -1021,35 +1225,50 @@ class _PaintingState extends State<Painting> with SingleTickerProviderStateMixin
                     });
                   },
                 ),
-                new SwitchListTile(
+                SwitchListTile(
                   title: const Text('Enable Ellipses'),
                   value: _ellipsize,
                   onChanged: (bool value) {
                     setState(() {
                       _ellipsize = value;
-                      _random = new math.Random(widget.seed); // reset for reproducibility
-                      if (!_ticker.isActive)
+                      _random = math.Random(widget.seed); // reset for reproducibility
+                      if (!_ticker.isActive) {
                         _update(null);
+                      }
                     });
                   },
                 ),
-                const ListTile(
-                  title: Text('There should be no red visible.'),
-                ),
-                new ButtonBar(
-                  children: <Widget>[
-                    new FlatButton(
-                      onPressed: _ticker.isActive ? null : () => _update(null),
-                      child: const Text('ITERATE'),
-                    ),
-                    new FlatButton(
-                      onPressed: _ticker.isActive ? null : () {
-                        print('The currently visible text is: $_text');
-                        print(_text.runes.map((int value) => 'U+${value.toRadixString(16).padLeft(4, '0').toUpperCase()}').join(' '));
-                      },
-                      child: const Text('DUMP TEXT TO LOGS'),
-                    ),
-                  ],
+                const ListTile(title: Text('There should be no red visible.')),
+
+                Container(
+                  alignment: AlignmentDirectional.centerEnd,
+                  padding: const EdgeInsets.all(8),
+                  child: OverflowBar(
+                    spacing: 8,
+                    children: <Widget>[
+                      TextButton(
+                        onPressed: _ticker.isActive ? null : () => _update(null),
+                        child: const Text('ITERATE'),
+                      ),
+                      TextButton(
+                        onPressed:
+                            _ticker.isActive
+                                ? null
+                                : () {
+                                  print('The currently visible text is: $_text');
+                                  print(
+                                    _text?.runes
+                                        .map<String>(
+                                          (int value) =>
+                                              'U+${value.toRadixString(16).padLeft(4, '0').toUpperCase()}',
+                                        )
+                                        .join(' '),
+                                  );
+                                },
+                        child: const Text('DUMP TEXT TO LOGS'),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -1060,15 +1279,22 @@ class _PaintingState extends State<Painting> with SingleTickerProviderStateMixin
   }
 }
 
-String zalgo(math.Random random, int targetLength, { bool includeSpacingCombiningMarks = false, String base }) {
+String zalgo(
+  math.Random random,
+  int targetLength, {
+  bool includeSpacingCombiningMarks = false,
+  String? base,
+}) {
   // The following three tables are derived from UnicodeData.txt:
   //   http://unicode.org/Public/UNIDATA/UnicodeData.txt
   // There are three groups, character classes Mc, Me, and Mn.
-  const List<int> enclosingCombiningMarks = <int>[ // Me
+  const List<int> enclosingCombiningMarks = <int>[
+    // Me
     0x00488, 0x00489, 0x01ABE, 0x020DD, 0x020DE, 0x020DF, 0x020E0,
     0x020E2, 0x020E3, 0x020E4, 0x0A670, 0x0A671, 0x0A672,
   ];
-  const List<int> nonspacingCombiningMarks = <int>[ // Mn
+  const List<int> nonspacingCombiningMarks = <int>[
+    // Mn
     0x00300, 0x00301, 0x00302, 0x00303, 0x00304, 0x00305, 0x00306,
     0x00307, 0x00308, 0x00309, 0x0030A, 0x0030B, 0x0030C, 0x0030D,
     0x0030E, 0x0030F, 0x00310, 0x00311, 0x00312, 0x00313, 0x00314,
@@ -1322,7 +1548,8 @@ String zalgo(math.Random random, int targetLength, { bool includeSpacingCombinin
     0xE01E3, 0xE01E4, 0xE01E5, 0xE01E6, 0xE01E7, 0xE01E8, 0xE01E9,
     0xE01EA, 0xE01EB, 0xE01EC, 0xE01ED, 0xE01EE, 0xE01EF,
   ];
-  const List<int> spacingCombiningMarks = <int>[ // Mc
+  const List<int> spacingCombiningMarks = <int>[
+    // Mc
     0x00903, 0x0093B, 0x0093E, 0x0093F, 0x00940, 0x00949, 0x0094A,
     0x0094B, 0x0094C, 0x0094E, 0x0094F, 0x00982, 0x00983, 0x009BE,
     0x009BF, 0x009C0, 0x009C7, 0x009C8, 0x009CB, 0x009CC, 0x009D7,
@@ -1382,10 +1609,11 @@ String zalgo(math.Random random, int targetLength, { bool includeSpacingCombinin
     0x16F7E, 0x1D165, 0x1D166, 0x1D16D, 0x1D16E, 0x1D16F, 0x1D170,
     0x1D171, 0x1D172,
   ];
-  final Set<int> these = new Set<int>();
+  final Set<int> these = <int>{};
   int combiningCount = enclosingCombiningMarks.length + nonspacingCombiningMarks.length;
-  if (includeSpacingCombiningMarks)
+  if (includeSpacingCombiningMarks) {
     combiningCount += spacingCombiningMarks.length;
+  }
   for (int count = 0; count < targetLength; count += 1) {
     int characterCode = random.nextInt(combiningCount);
     if (characterCode < enclosingCombiningMarks.length) {
@@ -1400,10 +1628,9 @@ String zalgo(math.Random random, int targetLength, { bool includeSpacingCombinin
       }
     }
   }
-  base ??= new String.fromCharCode(randomCharacter(random));
-  final List<int> characters = <int>[];
-  characters.addAll(these);
-  return base + new String.fromCharCodes(characters);
+  base ??= String.fromCharCode(randomCharacter(random));
+  final List<int> characters = these.toList();
+  return base + String.fromCharCodes(characters);
 }
 
 T pickFromList<T>(math.Random random, List<T> list) {
@@ -2109,8 +2336,9 @@ int randomCharacter(math.Random random) {
     Range(0x2ceb0, 0x2ebe0),
     Range(0x2f800, 0x2fa1d),
   ];
-  final Range range = pickFromList(random, characterRanges);
-  if (range.start == range.end)
+  final Range range = pickFromList<Range>(random, characterRanges);
+  if (range.start == range.end) {
     return range.start;
+  }
   return range.start + random.nextInt(range.end - range.start);
 }

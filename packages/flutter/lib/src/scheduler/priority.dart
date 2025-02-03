@@ -1,6 +1,9 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+/// @docImport 'binding.dart';
+library;
 
 import 'package:flutter/foundation.dart';
 
@@ -9,7 +12,7 @@ import 'package:flutter/foundation.dart';
 class Priority {
   const Priority._(this._value);
 
-  /// The integer that describes this Priority value.
+  /// Integer that describes this Priority value.
   int get value => _value;
   final int _value;
 
@@ -39,7 +42,7 @@ class Priority {
       // Clamp the input offset.
       offset = kMaxOffset * offset.sign;
     }
-    return new Priority._(_value + offset);
+    return Priority._(_value + offset);
   }
 
   /// Returns a priority relative to this priority.

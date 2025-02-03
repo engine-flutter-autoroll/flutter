@@ -1,187 +1,177 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'dart:async';
 
-import 'package:args/args.dart';
-
 import '../base/common.dart';
 import '../base/file_system.dart';
 import '../base/logger.dart';
-import '../base/utils.dart';
-import '../cache.dart';
 import '../dart/analysis.dart';
-import '../dart/sdk.dart' as sdk;
-import '../globals.dart';
-import 'analyze.dart';
 import 'analyze_base.dart';
 
-/// An aspect of the [AnalyzeCommand] to perform once time analysis.
 class AnalyzeOnce extends AnalyzeBase {
   AnalyzeOnce(
-    ArgResults argResults,
-    this.repoRoots,
-    this.repoPackages, {
+    super.argResults,
+    List<Directory> repoPackages, {
+    required super.fileSystem,
+    required super.logger,
+    required super.platform,
+    required super.processManager,
+    required super.terminal,
+    required super.artifacts,
+    required super.suppressAnalytics,
     this.workingDirectory,
-  }) : super(argResults);
-
-  final List<String> repoRoots;
-  final List<Directory> repoPackages;
+  }) : super(repoPackages: repoPackages);
 
   /// The working directory for testing analysis using dartanalyzer.
-  final Directory workingDirectory;
+  final Directory? workingDirectory;
 
   @override
-  Future<Null> analyze() async {
-    final String currentDirectory =
-        (workingDirectory ?? fs.currentDirectory).path;
+  Future<void> analyze() async {
+    final String currentDirectory = (workingDirectory ?? fileSystem.currentDirectory).path;
+    final Set<String> items = findDirectories(argResults, fileSystem);
 
-    // find directories from argResults.rest
-    final Set<String> directories = new Set<String>.from(argResults.rest
-        .map<String>((String path) => fs.path.canonicalize(path)));
-    if (directories.isNotEmpty) {
-      for (String directory in directories) {
-        final FileSystemEntityType type = fs.typeSync(directory);
-
-        if (type == FileSystemEntityType.notFound) {
-          throwToolExit("'$directory' does not exist");
-        } else if (type != FileSystemEntityType.directory) {
-          throwToolExit("'$directory' is not a directory");
-        }
-      }
-    }
-
-    if (argResults['flutter-repo']) {
+    if (isFlutterRepo) {
       // check for conflicting dependencies
-      final PackageDependencyTracker dependencies =
-          new PackageDependencyTracker();
+      final PackageDependencyTracker dependencies = PackageDependencyTracker();
       dependencies.checkForConflictingDependencies(repoPackages, dependencies);
-
-      directories.addAll(repoRoots);
-
-      if (argResults.wasParsed('current-package') &&
-          argResults['current-package']) {
-        directories.add(currentDirectory);
+      items.add(flutterRoot);
+      if (argResults.wasParsed('current-package') && (argResults['current-package'] as bool)) {
+        items.add(currentDirectory);
       }
     } else {
-      if (argResults['current-package']) {
-        directories.add(currentDirectory);
+      if ((argResults['current-package'] as bool) && items.isEmpty) {
+        items.add(currentDirectory);
       }
     }
 
-    if (argResults['dartdocs'] && !argResults['flutter-repo']) {
-      throwToolExit(
-          'The --dartdocs option is currently only supported with --flutter-repo.');
-    }
-
-    if (directories.isEmpty) {
+    if (items.isEmpty) {
       throwToolExit('Nothing to analyze.', exitCode: 0);
     }
 
-    // analyze all
-    final Completer<Null> analysisCompleter = new Completer<Null>();
+    final Completer<void> analysisCompleter = Completer<void>();
     final List<AnalysisError> errors = <AnalysisError>[];
 
-    final String sdkPath = argResults['dart-sdk'] ?? sdk.dartSdkPath;
+    final AnalysisServer server = AnalysisServer(
+      sdkPath,
+      items.toList(),
+      fileSystem: fileSystem,
+      platform: platform,
+      logger: logger,
+      processManager: processManager,
+      terminal: terminal,
+      protocolTrafficLog: protocolTrafficLog,
+      suppressAnalytics: suppressAnalytics,
+    );
 
-    final AnalysisServer server = new AnalysisServer(sdkPath, directories.toList());
+    Stopwatch? timer;
+    Status? progress;
+    try {
+      StreamSubscription<bool>? subscription;
 
-    StreamSubscription<bool> subscription;
-    subscription = server.onAnalyzing.listen((bool isAnalyzing) {
-      if (!isAnalyzing) {
-        analysisCompleter.complete();
-        subscription?.cancel();
-        subscription = null;
+      void handleAnalysisStatus(bool isAnalyzing) {
+        if (!isAnalyzing) {
+          analysisCompleter.complete();
+          subscription?.cancel();
+          subscription = null;
+        }
       }
-    });
-    server.onErrors.listen((FileAnalysisErrors fileErrors) {
-      fileErrors.errors
-          .removeWhere((AnalysisError error) => error.type == 'TODO');
-      errors.addAll(fileErrors.errors);
-    });
 
-    await server.start();
-    server.onExit.then((int exitCode) {
-      if (!analysisCompleter.isCompleted) {
-        analysisCompleter.completeError('analysis server exited: $exitCode');
+      subscription = server.onAnalyzing.listen(
+        (bool isAnalyzing) => handleAnalysisStatus(isAnalyzing),
+      );
+
+      void handleAnalysisErrors(FileAnalysisErrors fileErrors) {
+        fileErrors.errors.removeWhere((AnalysisError error) => error.type == 'TODO');
+
+        errors.addAll(fileErrors.errors);
       }
-    });
 
-    Cache.releaseLockEarly();
+      server.onErrors.listen(handleAnalysisErrors);
 
-    // collect results
-    final Stopwatch timer = new Stopwatch()..start();
-    final String message = directories.length > 1
-        ? '${directories.length} ${directories.length == 1 ? 'directory' : 'directories'}'
-        : fs.path.basename(directories.first);
-    final Status progress = argResults['preamble']
-        ? logger.startProgress('Analyzing $message...')
-        : null;
+      await server.start();
+      // Completing the future in the callback can't fail.
+      unawaited(
+        server.onExit.then<void>((int? exitCode) {
+          if (!analysisCompleter.isCompleted) {
+            analysisCompleter.completeError(
+              // Include the last 20 lines of server output in exception message
+              Exception(
+                'analysis server exited with code $exitCode and output:\n${server.getLogs(20)}',
+              ),
+            );
+          }
+        }),
+      );
 
-    await analysisCompleter.future;
-    progress?.cancel();
-    timer.stop();
+      // collect results
+      timer = Stopwatch()..start();
+      final String message =
+          items.length > 1
+              ? '${items.length} ${items.length == 1 ? 'item' : 'items'}'
+              : fileSystem.path.basename(items.first);
+      progress =
+          argResults['preamble'] == true ? logger.startProgress('Analyzing $message...') : null;
 
-    // report dartdocs
-    int undocumentedMembers = 0;
-
-    if (argResults['flutter-repo']) {
-      undocumentedMembers = errors.where((AnalysisError error) {
-        return error.code == 'public_member_api_docs';
-      }).length;
-
-      if (!argResults['dartdocs']) {
-        errors.removeWhere(
-            (AnalysisError error) => error.code == 'public_member_api_docs');
-      }
+      await analysisCompleter.future;
+    } finally {
+      await server.dispose();
+      progress?.cancel();
+      timer?.stop();
     }
 
     // emit benchmarks
     if (isBenchmarking) {
-      writeBenchmark(timer, errors.length, undocumentedMembers);
+      writeBenchmark(timer, errors.length);
     }
 
-    // report results
-    dumpErrors(
-        errors.map<String>((AnalysisError error) => error.toLegacyString()));
+    // --write
+    dumpErrors(errors.map<String>((AnalysisError error) => error.toLegacyString()));
 
-    if (errors.isNotEmpty && argResults['preamble']) {
-      printStatus('');
+    // report errors
+    if (errors.isNotEmpty && (argResults['preamble'] as bool)) {
+      logger.printStatus('');
     }
     errors.sort();
-    for (AnalysisError error in errors) {
-      printStatus(error.toString());
+    for (final AnalysisError error in errors) {
+      logger.printStatus(error.toString(), hangingIndent: 7);
     }
 
-    final String seconds =
-        (timer.elapsedMilliseconds / 1000.0).toStringAsFixed(1);
+    final int errorCount = errors.length;
+    final String seconds = (timer.elapsedMilliseconds / 1000.0).toStringAsFixed(1);
+    final String errorsMessage = AnalyzeBase.generateErrorsMessage(
+      issueCount: errorCount,
+      seconds: seconds,
+    );
 
-    // We consider any level of error to be an error exit (we don't report different levels).
-    if (errors.isNotEmpty) {
-      printStatus('');
+    if (errorCount > 0) {
+      logger.printStatus('');
+      throwToolExit(errorsMessage, exitCode: _isFatal(errors) ? 1 : 0);
+    }
 
-      printStatus(
-          '${errors.length} ${pluralize('issue', errors.length)} found. (ran in ${seconds}s)');
+    if (argResults['congratulate'] as bool) {
+      logger.printStatus(errorsMessage);
+    }
 
-      if (undocumentedMembers > 0) {
-        throwToolExit('[lint] $undocumentedMembers public '
-            '${ undocumentedMembers == 1
-            ? "member lacks"
-            : "members lack" } documentation');
-      } else {
-        throwToolExit(null);
+    if (server.didServerErrorOccur) {
+      throwToolExit('Server error(s) occurred. (ran in ${seconds}s)');
+    }
+  }
+
+  bool _isFatal(List<AnalysisError> errors) {
+    for (final AnalysisError error in errors) {
+      final AnalysisSeverity severityLevel = error.writtenError.severityLevel;
+      if (severityLevel == AnalysisSeverity.error) {
+        return true;
+      }
+      if (severityLevel == AnalysisSeverity.warning && argResults['fatal-warnings'] as bool) {
+        return true;
+      }
+      if (severityLevel == AnalysisSeverity.info && argResults['fatal-infos'] as bool) {
+        return true;
       }
     }
-
-    if (argResults['congratulate']) {
-      if (undocumentedMembers > 0) {
-        printStatus('No issues found! (ran in ${seconds}s; '
-            '$undocumentedMembers public ${ undocumentedMembers ==
-            1 ? "member lacks" : "members lack" } documentation)');
-      } else {
-        printStatus('No issues found! (ran in ${seconds}s)');
-      }
-    }
+    return false;
   }
 }

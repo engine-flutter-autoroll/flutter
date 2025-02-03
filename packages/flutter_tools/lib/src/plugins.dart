@@ -1,302 +1,511 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-
-import 'package:mustache/mustache.dart' as mustache;
+import 'package:pub_semver/pub_semver.dart';
 import 'package:yaml/yaml.dart';
 
+import 'base/common.dart';
 import 'base/file_system.dart';
-import 'dart/package_map.dart';
-import 'globals.dart';
-import 'ios/cocoapods.dart';
-import 'project.dart';
-
-void _renderTemplateToFile(String template, dynamic context, String filePath) {
-  final String renderedTemplate =
-     new mustache.Template(template).renderString(context);
-  final File file = fs.file(filePath);
-  file.createSync(recursive: true);
-  file.writeAsStringSync(renderedTemplate);
-}
+import 'platform_plugins.dart';
 
 class Plugin {
-  final String name;
-  final String path;
-  final String androidPackage;
-  final String iosPrefix;
-  final String pluginClass;
-
   Plugin({
-    this.name,
-    this.path,
-    this.androidPackage,
-    this.iosPrefix,
-    this.pluginClass,
+    required this.name,
+    required this.path,
+    required this.platforms,
+    required this.defaultPackagePlatforms,
+    required this.pluginDartClassPlatforms,
+    this.flutterConstraint,
+    required this.dependencies,
+    required this.isDirectDependency,
+    required this.isDevDependency,
+    this.implementsPackage,
   });
 
-  factory Plugin.fromYaml(String name, String path, dynamic pluginYaml) {
-    String androidPackage;
-    String iosPrefix;
-    String pluginClass;
-    if (pluginYaml != null) {
-      androidPackage = pluginYaml['androidPackage'];
-      iosPrefix = pluginYaml['iosPrefix'] ?? '';
-      pluginClass = pluginYaml['pluginClass'];
+  /// Parses [Plugin] specification from the provided pluginYaml.
+  ///
+  /// This currently supports two formats. Legacy and Multi-platform.
+  ///
+  /// Example of the deprecated Legacy format.
+  ///
+  ///     flutter:
+  ///      plugin:
+  ///        androidPackage: io.flutter.plugins.sample
+  ///        iosPrefix: FLT
+  ///        pluginClass: SamplePlugin
+  ///
+  /// Example Multi-platform format.
+  ///
+  ///     flutter:
+  ///      plugin:
+  ///        platforms:
+  ///          android:
+  ///            package: io.flutter.plugins.sample
+  ///            pluginClass: SamplePlugin
+  ///          ios:
+  ///            # A plugin implemented through method channels.
+  ///            pluginClass: SamplePlugin
+  ///          linux:
+  ///            # A plugin implemented purely in Dart code.
+  ///            dartPluginClass: SamplePlugin
+  ///            # Optional field to determine file containing dartPluginClass.
+  ///            # This file will be used in imports in generated files, e.g.:
+  ///            #   import 'package:{{pluginName}}/{{dartFileName}}'
+  ///            # instead of default:
+  ///            #    import 'package:{{pluginName}}/{{pluginName}}.dart'
+  ///            dartFileName: src/sample_plugin.dart
+  ///          macos:
+  ///            # A plugin implemented with `dart:ffi`.
+  ///            ffiPlugin: true
+  ///          windows:
+  ///            # A plugin using platform-specific Dart and method channels.
+  ///            dartPluginClass: SamplePlugin
+  ///            pluginClass: SamplePlugin
+  factory Plugin.fromYaml(
+    String name,
+    String path,
+    YamlMap? pluginYaml,
+    VersionConstraint? flutterConstraint,
+    List<String> dependencies, {
+    required FileSystem fileSystem,
+    required bool isDevDependency,
+    Set<String>? appDependencies,
+  }) {
+    final List<String> errors = validatePluginYaml(pluginYaml);
+    if (errors.isNotEmpty) {
+      throwToolExit('Invalid plugin specification $name.\n${errors.join('\n')}');
     }
-    return new Plugin(
+    if (pluginYaml != null && pluginYaml['platforms'] != null) {
+      return Plugin._fromMultiPlatformYaml(
+        name,
+        path,
+        pluginYaml,
+        flutterConstraint,
+        dependencies,
+        fileSystem,
+        isDevDependency: isDevDependency,
+        appDependencies != null && appDependencies.contains(name),
+      );
+    }
+    return Plugin._fromLegacyYaml(
+      name,
+      path,
+      pluginYaml,
+      flutterConstraint,
+      dependencies,
+      fileSystem,
+      isDevDependency: isDevDependency,
+      appDependencies != null && appDependencies.contains(name),
+    );
+  }
+
+  factory Plugin._fromMultiPlatformYaml(
+    String name,
+    String path,
+    YamlMap pluginYaml,
+    VersionConstraint? flutterConstraint,
+    List<String> dependencies,
+    FileSystem fileSystem,
+    bool isDirectDependency, {
+    required bool isDevDependency,
+  }) {
+    assert(pluginYaml['platforms'] != null, 'Invalid multi-platform plugin specification $name.');
+    final YamlMap platformsYaml = pluginYaml['platforms'] as YamlMap;
+
+    assert(
+      _validateMultiPlatformYaml(platformsYaml).isEmpty,
+      'Invalid multi-platform plugin specification $name.',
+    );
+
+    final Map<String, PluginPlatform> platforms = <String, PluginPlatform>{};
+
+    if (_providesImplementationForPlatform(platformsYaml, AndroidPlugin.kConfigKey)) {
+      platforms[AndroidPlugin.kConfigKey] = AndroidPlugin.fromYaml(
+        name,
+        platformsYaml[AndroidPlugin.kConfigKey] as YamlMap,
+        path,
+        fileSystem,
+      );
+    }
+
+    if (_providesImplementationForPlatform(platformsYaml, IOSPlugin.kConfigKey)) {
+      platforms[IOSPlugin.kConfigKey] = IOSPlugin.fromYaml(
+        name,
+        platformsYaml[IOSPlugin.kConfigKey] as YamlMap,
+      );
+    }
+
+    if (_providesImplementationForPlatform(platformsYaml, LinuxPlugin.kConfigKey)) {
+      platforms[LinuxPlugin.kConfigKey] = LinuxPlugin.fromYaml(
+        name,
+        platformsYaml[LinuxPlugin.kConfigKey] as YamlMap,
+      );
+    }
+
+    if (_providesImplementationForPlatform(platformsYaml, MacOSPlugin.kConfigKey)) {
+      platforms[MacOSPlugin.kConfigKey] = MacOSPlugin.fromYaml(
+        name,
+        platformsYaml[MacOSPlugin.kConfigKey] as YamlMap,
+      );
+    }
+
+    if (_providesImplementationForPlatform(platformsYaml, WebPlugin.kConfigKey)) {
+      platforms[WebPlugin.kConfigKey] = WebPlugin.fromYaml(
+        name,
+        platformsYaml[WebPlugin.kConfigKey] as YamlMap,
+      );
+    }
+
+    if (_providesImplementationForPlatform(platformsYaml, WindowsPlugin.kConfigKey)) {
+      platforms[WindowsPlugin.kConfigKey] = WindowsPlugin.fromYaml(
+        name,
+        platformsYaml[WindowsPlugin.kConfigKey] as YamlMap,
+      );
+    }
+
+    // TODO(stuartmorgan): Consider merging web into this common handling; the
+    //  fact that its implementation of Dart-only plugins and default packages
+    //  are separate is legacy.
+    final List<String> sharedHandlingPlatforms = <String>[
+      AndroidPlugin.kConfigKey,
+      IOSPlugin.kConfigKey,
+      LinuxPlugin.kConfigKey,
+      MacOSPlugin.kConfigKey,
+      WindowsPlugin.kConfigKey,
+    ];
+    final Map<String, String> defaultPackages = <String, String>{};
+    final Map<String, DartPluginClassAndFilePair> dartPluginClasses =
+        <String, DartPluginClassAndFilePair>{};
+    for (final String platform in sharedHandlingPlatforms) {
+      final String? defaultPackage = _getDefaultPackageForPlatform(platformsYaml, platform);
+      if (defaultPackage != null) {
+        defaultPackages[platform] = defaultPackage;
+      }
+      final DartPluginClassAndFilePair? dartPair = _getPluginDartClassForPlatform(
+        platformsYaml,
+        platformKey: platform,
+        pluginName: name,
+      );
+      if (dartPair != null) {
+        dartPluginClasses[platform] = dartPair;
+      }
+    }
+
+    return Plugin(
       name: name,
       path: path,
-      androidPackage: androidPackage,
-      iosPrefix: iosPrefix,
-      pluginClass: pluginClass,
+      platforms: platforms,
+      defaultPackagePlatforms: defaultPackages,
+      pluginDartClassPlatforms: dartPluginClasses,
+      flutterConstraint: flutterConstraint,
+      dependencies: dependencies,
+      isDirectDependency: isDirectDependency,
+      implementsPackage: pluginYaml['implements'] != null ? pluginYaml['implements'] as String : '',
+      isDevDependency: isDevDependency,
     );
   }
-}
 
-Plugin _pluginFromPubspec(String name, Uri packageRoot) {
-  final String pubspecPath = fs.path.fromUri(packageRoot.resolve('pubspec.yaml'));
-  if (!fs.isFileSync(pubspecPath))
-    return null;
-  final dynamic pubspec = loadYaml(fs.file(pubspecPath).readAsStringSync());
-  if (pubspec == null)
-    return null;
-  final dynamic flutterConfig = pubspec['flutter'];
-  if (flutterConfig == null || !flutterConfig.containsKey('plugin'))
-    return null;
-  final String packageRootPath = fs.path.fromUri(packageRoot);
-  printTrace('Found plugin $name at $packageRootPath');
-  return new Plugin.fromYaml(name, packageRootPath, flutterConfig['plugin']);
-}
+  factory Plugin._fromLegacyYaml(
+    String name,
+    String path,
+    dynamic pluginYaml,
+    VersionConstraint? flutterConstraint,
+    List<String> dependencies,
+    FileSystem fileSystem,
+    bool isDirectDependency, {
+    required bool isDevDependency,
+  }) {
+    final Map<String, PluginPlatform> platforms = <String, PluginPlatform>{};
+    final String? pluginClass = (pluginYaml as Map<dynamic, dynamic>)['pluginClass'] as String?;
+    if (pluginClass != null) {
+      final String? androidPackage = pluginYaml['androidPackage'] as String?;
+      if (androidPackage != null) {
+        platforms[AndroidPlugin.kConfigKey] = AndroidPlugin(
+          name: name,
+          package: androidPackage,
+          pluginClass: pluginClass,
+          pluginPath: path,
+          fileSystem: fileSystem,
+        );
+      }
 
-List<Plugin> findPlugins(FlutterProject project) {
-  final List<Plugin> plugins = <Plugin>[];
-  Map<String, Uri> packages;
-  try {
-    final String packagesFile = fs.path.join(project.directory.path, PackageMap.globalPackagesPath);
-    packages = new PackageMap(packagesFile).map;
-  } on FormatException catch (e) {
-    printTrace('Invalid .packages file: $e');
-    return plugins;
-  }
-  packages.forEach((String name, Uri uri) {
-    final Uri packageRoot = uri.resolve('..');
-    final Plugin plugin = _pluginFromPubspec(name, packageRoot);
-    if (plugin != null)
-      plugins.add(plugin);
-  });
-  return plugins;
-}
-
-/// Returns true if .flutter-plugins has changed, otherwise returns false.
-bool _writeFlutterPluginsList(FlutterProject project, List<Plugin> plugins) {
-  final File pluginsFile = project.flutterPluginsFile;
-  final String oldContents = _readFlutterPluginsList(project);
-  final String pluginManifest =
-      plugins.map((Plugin p) => '${p.name}=${escapePath(p.path)}').join('\n');
-  if (pluginManifest.isNotEmpty) {
-    pluginsFile.writeAsStringSync('$pluginManifest\n', flush: true);
-  } else {
-    if (pluginsFile.existsSync())
-      pluginsFile.deleteSync();
-  }
-  final String newContents = _readFlutterPluginsList(project);
-  return oldContents != newContents;
-}
-
-/// Returns the contents of the `.flutter-plugins` file in [directory], or
-/// null if that file does not exist.
-String _readFlutterPluginsList(FlutterProject project) {
-  return project.flutterPluginsFile.existsSync()
-      ? project.flutterPluginsFile.readAsStringSync()
-      : null;
-}
-
-const String _androidPluginRegistryTemplate = '''package io.flutter.plugins;
-
-import io.flutter.plugin.common.PluginRegistry;
-{{#plugins}}
-import {{package}}.{{class}};
-{{/plugins}}
-
-/**
- * Generated file. Do not edit.
- */
-public final class GeneratedPluginRegistrant {
-  public static void registerWith(PluginRegistry registry) {
-    if (alreadyRegisteredWith(registry)) {
-      return;
+      final String iosPrefix = pluginYaml['iosPrefix'] as String? ?? '';
+      platforms[IOSPlugin.kConfigKey] = IOSPlugin(
+        name: name,
+        classPrefix: iosPrefix,
+        pluginClass: pluginClass,
+      );
     }
-{{#plugins}}
-    {{class}}.registerWith(registry.registrarFor("{{package}}.{{class}}"));
-{{/plugins}}
+    return Plugin(
+      name: name,
+      path: path,
+      platforms: platforms,
+      defaultPackagePlatforms: <String, String>{},
+      pluginDartClassPlatforms: <String, DartPluginClassAndFilePair>{},
+      flutterConstraint: flutterConstraint,
+      dependencies: dependencies,
+      isDirectDependency: isDirectDependency,
+      isDevDependency: isDevDependency,
+    );
   }
 
-  private static boolean alreadyRegisteredWith(PluginRegistry registry) {
-    final String key = GeneratedPluginRegistrant.class.getCanonicalName();
-    if (registry.hasPlugin(key)) {
+  /// Create a YamlMap that represents the supported platforms.
+  ///
+  /// For example, if the `platforms` contains 'ios' and 'android', the return map looks like:
+  ///
+  ///     android:
+  ///       package: io.flutter.plugins.sample
+  ///       pluginClass: SamplePlugin
+  ///     ios:
+  ///       pluginClass: SamplePlugin
+  static YamlMap createPlatformsYamlMap(
+    List<String> platforms,
+    String pluginClass,
+    String androidPackage,
+  ) {
+    final Map<String, dynamic> map = <String, dynamic>{};
+    for (final String platform in platforms) {
+      map[platform] = <String, String>{
+        'pluginClass': pluginClass,
+        ...platform == 'android' ? <String, String>{'package': androidPackage} : <String, String>{},
+      };
+    }
+    return YamlMap.wrap(map);
+  }
+
+  static List<String> validatePluginYaml(YamlMap? yaml) {
+    if (yaml == null) {
+      return <String>['Invalid "plugin" specification.'];
+    }
+
+    final bool usesOldPluginFormat = const <String>{
+      'androidPackage',
+      'iosPrefix',
+      'pluginClass',
+    }.any(yaml.containsKey);
+
+    final bool usesNewPluginFormat = yaml.containsKey('platforms');
+
+    if (usesOldPluginFormat && usesNewPluginFormat) {
+      const String errorMessage =
+          'The flutter.plugin.platforms key cannot be used in combination with the old '
+          'flutter.plugin.{androidPackage,iosPrefix,pluginClass} keys. '
+          'See: https://flutter.dev/to/pubspec-plugin-platforms';
+      return <String>[errorMessage];
+    }
+
+    if (!usesOldPluginFormat && !usesNewPluginFormat) {
+      const String errorMessage =
+          'Cannot find the `flutter.plugin.platforms` key in the `pubspec.yaml` file. '
+          'An instruction to format the `pubspec.yaml` can be found here: '
+          'https://flutter.dev/to/pubspec-plugin-platforms';
+      return <String>[errorMessage];
+    }
+
+    if (usesNewPluginFormat) {
+      if (yaml['platforms'] != null && yaml['platforms'] is! YamlMap) {
+        const String errorMessage =
+            'flutter.plugin.platforms should be a map with the platform name as the key';
+        return <String>[errorMessage];
+      }
+      return _validateMultiPlatformYaml(yaml['platforms'] as YamlMap?);
+    } else {
+      return _validateLegacyYaml(yaml);
+    }
+  }
+
+  static List<String> _validateMultiPlatformYaml(YamlMap? yaml) {
+    bool isInvalid(String key, bool Function(YamlMap) validate) {
+      if (!yaml!.containsKey(key)) {
+        return false;
+      }
+      final dynamic yamlValue = yaml[key];
+      if (yamlValue is! YamlMap) {
+        return true;
+      }
+      if (yamlValue.containsKey('default_package')) {
+        return false;
+      }
+      return !validate(yamlValue);
+    }
+
+    if (yaml == null) {
+      return <String>['Invalid "platforms" specification.'];
+    }
+    return <String>[
+      if (isInvalid(AndroidPlugin.kConfigKey, AndroidPlugin.validate))
+        'Invalid "android" plugin specification.',
+      if (isInvalid(IOSPlugin.kConfigKey, IOSPlugin.validate))
+        'Invalid "ios" plugin specification.',
+      if (isInvalid(LinuxPlugin.kConfigKey, LinuxPlugin.validate))
+        'Invalid "linux" plugin specification.',
+      if (isInvalid(MacOSPlugin.kConfigKey, MacOSPlugin.validate))
+        'Invalid "macos" plugin specification.',
+      if (isInvalid(WindowsPlugin.kConfigKey, WindowsPlugin.validate))
+        'Invalid "windows" plugin specification.',
+    ];
+  }
+
+  static List<String> _validateLegacyYaml(YamlMap yaml) {
+    return <String>[
+      if (yaml['androidPackage'] is! String?)
+        'The "androidPackage" must either be null or a string.',
+      if (yaml['iosPrefix'] is! String?) 'The "iosPrefix" must either be null or a string.',
+      if (yaml['pluginClass'] is! String?) 'The "pluginClass" must either be null or a string.',
+    ];
+  }
+
+  static bool _supportsPlatform(YamlMap platformsYaml, String platformKey) {
+    if (!platformsYaml.containsKey(platformKey)) {
+      return false;
+    }
+    if (platformsYaml[platformKey] is YamlMap) {
       return true;
     }
-    registry.registrarFor(key);
     return false;
   }
-}
-''';
 
-Future<void> _writeAndroidPluginRegistrant(FlutterProject project, List<Plugin> plugins) async {
-  final List<Map<String, dynamic>> androidPlugins = plugins
-      .where((Plugin p) => p.androidPackage != null && p.pluginClass != null)
-      .map((Plugin p) => <String, dynamic>{
-          'name': p.name,
-          'package': p.androidPackage,
-          'class': p.pluginClass,
-      })
-      .toList();
-  final Map<String, dynamic> context = <String, dynamic>{
-    'plugins': androidPlugins,
-  };
+  static String? _getDefaultPackageForPlatform(YamlMap platformsYaml, String platformKey) {
+    if (!_supportsPlatform(platformsYaml, platformKey)) {
+      return null;
+    }
+    if ((platformsYaml[platformKey] as YamlMap).containsKey(kDefaultPackage)) {
+      return (platformsYaml[platformKey] as YamlMap)[kDefaultPackage] as String;
+    }
+    return null;
+  }
 
-  final String javaSourcePath = fs.path.join(
-    project.androidPluginRegistrantHost.path,
-    'src',
-    'main',
-    'java',
-  );
-  final String registryPath = fs.path.join(
-    javaSourcePath,
-    'io',
-    'flutter',
-    'plugins',
-    'GeneratedPluginRegistrant.java',
-  );
-  _renderTemplateToFile(_androidPluginRegistryTemplate, context, registryPath);
-}
+  static DartPluginClassAndFilePair? _getPluginDartClassForPlatform(
+    YamlMap platformsYaml, {
+    required String platformKey,
+    required String pluginName,
+  }) {
+    if (!_supportsPlatform(platformsYaml, platformKey)) {
+      return null;
+    }
+    if ((platformsYaml[platformKey] as YamlMap).containsKey(kDartPluginClass)) {
+      final String dartClass = (platformsYaml[platformKey] as YamlMap)[kDartPluginClass] as String;
+      final String dartFileName =
+          (platformsYaml[platformKey] as YamlMap)[kDartFileName] as String? ?? '$pluginName.dart';
+      return (dartClass: dartClass, dartFileName: dartFileName);
+    }
+    return null;
+  }
 
-const String _iosPluginRegistryHeaderTemplate = '''//
-//  Generated file. Do not edit.
-//
+  static bool _providesImplementationForPlatform(YamlMap platformsYaml, String platformKey) {
+    if (!_supportsPlatform(platformsYaml, platformKey)) {
+      return false;
+    }
+    if ((platformsYaml[platformKey] as YamlMap).containsKey(kDefaultPackage)) {
+      return false;
+    }
+    return true;
+  }
 
-#ifndef GeneratedPluginRegistrant_h
-#define GeneratedPluginRegistrant_h
+  final String name;
+  final String path;
 
-#import <Flutter/Flutter.h>
+  /// The name of the interface package that this plugin implements.
+  /// If [null], this plugin doesn't implement an interface.
+  final String? implementsPackage;
 
-@interface GeneratedPluginRegistrant : NSObject
-+ (void)registerWithRegistry:(NSObject<FlutterPluginRegistry>*)registry;
-@end
+  /// The required version of Flutter, if specified.
+  final VersionConstraint? flutterConstraint;
 
-#endif /* GeneratedPluginRegistrant_h */
-''';
+  /// The name of the packages this plugin depends on.
+  final List<String> dependencies;
 
-const String _iosPluginRegistryImplementationTemplate = '''//
-//  Generated file. Do not edit.
-//
+  /// This is a mapping from platform config key to the plugin platform spec.
+  final Map<String, PluginPlatform> platforms;
 
-#import "GeneratedPluginRegistrant.h"
-{{#plugins}}
-#import <{{name}}/{{class}}.h>
-{{/plugins}}
+  /// This is a mapping from platform config key to the default package implementation.
+  final Map<String, String> defaultPackagePlatforms;
 
-@implementation GeneratedPluginRegistrant
+  /// This is a mapping from platform config key to the Dart plugin class for the given platform.
+  final Map<String, DartPluginClassAndFilePair> pluginDartClassPlatforms;
 
-+ (void)registerWithRegistry:(NSObject<FlutterPluginRegistry>*)registry {
-{{#plugins}}
-  [{{prefix}}{{class}} registerWithRegistrar:[registry registrarForPlugin:@"{{prefix}}{{class}}"]];
-{{/plugins}}
-}
+  /// Whether this plugin is a direct dependency of the app.
+  /// If [false], the plugin is a dependency of another plugin.
+  final bool isDirectDependency;
 
-@end
-''';
+  /// Whether this plugin is exclusively used as a dev dependency of the app.
+  ///
+  /// If [false], the plugin is either:
+  /// - _Not_ a dev dependency
+  /// - _Not_ a dev dependency of some dependency that itself is not a dev
+  ///   dependency
+  ///
+  /// Dev dependencies are intended to be stripped out in release builds.
+  final bool isDevDependency;
 
-const String _iosPluginRegistrantPodspecTemplate = '''
-#
-# Generated file, do not edit.
-#
+  /// Expected path to the plugin's Package.swift. Returns null if the plugin
+  /// does not support the [platform] or the [platform] is not iOS or macOS.
+  String? pluginSwiftPackageManifestPath(FileSystem fileSystem, String platform) {
+    final String? platformDirectoryName = _darwinPluginDirectoryName(platform);
+    if (platformDirectoryName == null) {
+      return null;
+    }
+    return fileSystem.path.join(path, platformDirectoryName, name, 'Package.swift');
+  }
 
-Pod::Spec.new do |s|
-  s.name             = 'FlutterPluginRegistrant'
-  s.version          = '0.0.1'
-  s.summary          = 'Registers plugins with your flutter app'
-  s.description      = <<-DESC
-Depends on all your plugins, and provides a function to register them.
-                       DESC
-  s.homepage         = 'https://flutter.io'
-  s.license          = { :type => 'BSD' }
-  s.author           = { 'Flutter Dev Team' => 'flutter-dev@googlegroups.com' }
-  s.ios.deployment_target = '7.0'
-  s.source_files =  "Classes", "Classes/**/*.{h,m}"
-  s.source           = { :path => '.' }
-  s.public_header_files = './Classes/**/*.h'
-  {{#plugins}}
-  s.dependency '{{name}}'
-  {{/plugins}}
-end
-''';
+  /// Expected path to the plugin's podspec. Returns null if the plugin does
+  /// not support the [platform] or the [platform] is not iOS or macOS.
+  String? pluginPodspecPath(FileSystem fileSystem, String platform) {
+    final String? platformDirectoryName = _darwinPluginDirectoryName(platform);
+    if (platformDirectoryName == null) {
+      return null;
+    }
+    return fileSystem.path.join(path, platformDirectoryName, '$name.podspec');
+  }
 
-Future<void> _writeIOSPluginRegistrant(FlutterProject project, List<Plugin> plugins) async {
-  final List<Map<String, dynamic>> iosPlugins = plugins
-      .where((Plugin p) => p.pluginClass != null)
-      .map((Plugin p) => <String, dynamic>{
-    'name': p.name,
-    'prefix': p.iosPrefix,
-    'class': p.pluginClass,
-  }).
-  toList();
-  final Map<String, dynamic> context = <String, dynamic>{
-    'plugins': iosPlugins,
-  };
+  String? _darwinPluginDirectoryName(String platform) {
+    final PluginPlatform? platformPlugin = platforms[platform];
+    if (platformPlugin == null ||
+        (platform != IOSPlugin.kConfigKey && platform != MacOSPlugin.kConfigKey)) {
+      return null;
+    }
 
-  final String registryDirectory = project.iosPluginRegistrantHost.path;
-  if (project.manifest.isModule) {
-    final String registryClassesDirectory = fs.path.join(registryDirectory, 'Classes');
-    _renderTemplateToFile(
-      _iosPluginRegistrantPodspecTemplate,
-      context,
-      fs.path.join(registryDirectory, 'FlutterPluginRegistrant.podspec'),
-    );
-    _renderTemplateToFile(
-      _iosPluginRegistryHeaderTemplate,
-      context,
-      fs.path.join(registryClassesDirectory, 'GeneratedPluginRegistrant.h'),
-    );
-    _renderTemplateToFile(
-      _iosPluginRegistryImplementationTemplate,
-      context,
-      fs.path.join(registryClassesDirectory, 'GeneratedPluginRegistrant.m'),
-    );
-  } else {
-    _renderTemplateToFile(
-      _iosPluginRegistryHeaderTemplate,
-      context,
-      fs.path.join(registryDirectory, 'GeneratedPluginRegistrant.h'),
-    );
-    _renderTemplateToFile(
-      _iosPluginRegistryImplementationTemplate,
-      context,
-      fs.path.join(registryDirectory, 'GeneratedPluginRegistrant.m'),
-    );
+    // iOS and macOS code can be shared in "darwin" directory, otherwise
+    // respectively in "ios" or "macos" directories.
+    if (platformPlugin is DarwinPlugin && (platformPlugin as DarwinPlugin).sharedDarwinSource) {
+      return 'darwin';
+    }
+    return platform;
   }
 }
 
-/// Injects plugins found in `pubspec.yaml` into the platform-specific projects.
-Future<void> injectPlugins(FlutterProject project) async {
-  final List<Plugin> plugins = findPlugins(project);
-  final bool changed = _writeFlutterPluginsList(project, plugins);
-  await _writeAndroidPluginRegistrant(project, plugins);
-  await _writeIOSPluginRegistrant(project, plugins);
+/// Metadata associated with the resolution of a platform interface of a plugin.
+class PluginInterfaceResolution {
+  PluginInterfaceResolution({required this.plugin, required this.platform});
 
-  if (project.ios.directory.existsSync()) {
-    final CocoaPods cocoaPods = new CocoaPods();
-    if (plugins.isNotEmpty)
-      cocoaPods.setupPodfile(project.ios);
-    if (changed)
-      cocoaPods.invalidatePodInstallOutput(project.ios);
+  /// The plugin.
+  final Plugin plugin;
+  // The name of the platform that this plugin implements.
+  final String platform;
+
+  Map<String, String> toMap() {
+    return <String, String>{
+      'pluginName': plugin.name,
+      'platform': platform,
+      'dartClass': plugin.pluginDartClassPlatforms[platform]?.dartClass ?? '',
+      'dartFileName': plugin.pluginDartClassPlatforms[platform]?.dartFileName ?? '',
+    };
+  }
+
+  @override
+  String toString() {
+    return '<PluginInterfaceResolution ${plugin.name} for $platform>';
   }
 }
 
-/// Returns whether the Flutter project at the specified [directory]
-/// has any plugin dependencies.
-bool hasPlugins(FlutterProject project) {
-  return _readFlutterPluginsList(project) != null;
-}
+/// A record representing pair of dartPluginClass and dartFileName used as metadata
+/// in [PluginInterfaceResolution].
+///
+/// The [dartClass] and [dartFileName] fields are guaranteed to be non-null:
+/// - record should be created only if dartClassName exists in plugin configuration.
+/// - dartFileName either taken from configuration, or, if absent, should be
+/// constructed from plugin name.
+/// See also:
+/// - [PluginInterfaceResolution], which uses this record to create Map with metadata.
+typedef DartPluginClassAndFilePair = ({String dartClass, String dartFileName});

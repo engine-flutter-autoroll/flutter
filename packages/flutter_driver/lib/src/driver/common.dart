@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@ FileSystem fs = const LocalFileSystem();
 /// Overrides the file system so it can be tested without hitting the hard
 /// drive.
 void useMemoryFileSystemForTesting() {
-  fs = new MemoryFileSystem();
+  fs = MemoryFileSystem();
 }
 
 /// Restores the file system to the default local file system implementation.

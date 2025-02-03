@@ -1,55 +1,53 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 class Item {
-  GlobalKey key1 = new GlobalKey();
-  GlobalKey key2 = new GlobalKey();
+  GlobalKey key1 = GlobalKey();
+  GlobalKey key2 = GlobalKey();
 
   @override
   String toString() => 'Item($key1, $key2)';
 }
-List<Item> items = <Item>[new Item(), new Item()];
+
+List<Item> items = <Item>[Item(), Item()];
 
 class StatefulLeaf extends StatefulWidget {
-  const StatefulLeaf({ GlobalKey key }) : super(key: key);
+  const StatefulLeaf({GlobalKey? key}) : super(key: key);
 
   @override
-  StatefulLeafState createState() => new StatefulLeafState();
+  StatefulLeafState createState() => StatefulLeafState();
 }
 
 class StatefulLeafState extends State<StatefulLeaf> {
-  void markNeedsBuild() { setState(() { }); }
+  void markNeedsBuild() {
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) => const Text('leaf', textDirection: TextDirection.ltr);
 }
 
 class KeyedWrapper extends StatelessWidget {
-  const KeyedWrapper(this.key1, this.key2);
+  const KeyedWrapper(this.key1, this.key2, {super.key});
 
   final Key key1;
-  final Key key2;
+  final GlobalKey key2;
 
   @override
   Widget build(BuildContext context) {
-    return new Container(
-      key: key1,
-      child: new StatefulLeaf(
-        key: key2,
-      )
-    );
+    return Container(key: key1, child: StatefulLeaf(key: key2));
   }
 }
 
 Widget builder() {
-  return new Column(
+  return Column(
     children: <Widget>[
-      new KeyedWrapper(items[1].key1, items[1].key2),
-      new KeyedWrapper(items[0].key1, items[0].key2),
+      KeyedWrapper(items[1].key1, items[1].key2),
+      KeyedWrapper(items[0].key1, items[0].key2),
     ],
   );
 }

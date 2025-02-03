@@ -1,30 +1,30 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 import 'rendering_tester.dart';
 
-
 void main() {
-  test('only send semantics update if semantics have changed', () {
-    final TestRender testRender = new TestRender()
-      ..label = 'hello'
-      ..textDirection = TextDirection.ltr;
+  TestRenderingFlutterBinding.ensureInitialized();
 
-    final RenderObject tree = new RenderConstrainedBox(
+  test('only send semantics update if semantics have changed', () {
+    final TestRender testRender =
+        TestRender()
+          ..properties = const SemanticsProperties(label: 'hello')
+          ..textDirection = TextDirection.ltr;
+
+    final RenderConstrainedBox tree = RenderConstrainedBox(
       additionalConstraints: const BoxConstraints.tightFor(height: 20.0, width: 20.0),
       child: testRender,
     );
     int semanticsUpdateCount = 0;
-    final SemanticsHandle semanticsHandle = renderer.pipelineOwner.ensureSemantics(
-        listener: () {
-          ++semanticsUpdateCount;
-        }
-    );
+    final SemanticsHandle semanticsHandle = TestRenderingFlutterBinding.instance.ensureSemantics();
+    TestRenderingFlutterBinding.instance.pipelineOwner.semanticsOwner!.addListener(() {
+      ++semanticsUpdateCount;
+    });
 
     layout(tree, phase: EnginePhase.flushSemantics);
 
@@ -47,7 +47,7 @@ void main() {
     semanticsUpdateCount = 0;
 
     // Change semantics and request update.
-    testRender.label = 'bye';
+    testRender.properties = const SemanticsProperties(label: 'bye');
     testRender.markNeedsSemanticsUpdate();
     pumpFrame(phase: EnginePhase.flushSemantics);
 
@@ -60,6 +60,8 @@ void main() {
 }
 
 class TestRender extends RenderSemanticsAnnotations {
+  TestRender() : super(properties: const SemanticsProperties());
+
   int describeSemanticsConfigurationCallCount = 0;
 
   @override

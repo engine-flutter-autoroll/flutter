@@ -1,27 +1,26 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+
 import 'test_widgets.dart';
 
 class StatefulWrapper extends StatefulWidget {
-  const StatefulWrapper({
-    Key key,
-    this.child,
-  }) : super(key: key);
+  const StatefulWrapper({super.key, required this.child});
 
   final Widget child;
 
   @override
-  StatefulWrapperState createState() => new StatefulWrapperState();
+  StatefulWrapperState createState() => StatefulWrapperState();
 }
 
 class StatefulWrapperState extends State<StatefulWrapper> {
-
   void trigger() {
-    setState(() { /* no-op setState */ });
+    setState(() {
+      /* no-op setState */
+    });
   }
 
   bool built = false;
@@ -34,10 +33,7 @@ class StatefulWrapperState extends State<StatefulWrapper> {
 }
 
 class Wrapper extends StatelessWidget {
-  const Wrapper({
-    Key key,
-    this.child,
-  }) : super(key: key);
+  const Wrapper({super.key, required this.child});
 
   final Widget child;
 
@@ -48,21 +44,21 @@ class Wrapper extends StatelessWidget {
 }
 
 void main() {
-  testWidgets('Calling setState on a widget that moves into a LayoutBuilder in the same frame', (WidgetTester tester) async {
-    StatefulWrapperState statefulWrapper;
-    final Widget inner = new Wrapper(
-      child: new StatefulWrapper(
-        key: new GlobalKey(),
-        child: new Container(),
+  testWidgets('Calling setState on a widget that moves into a LayoutBuilder in the same frame', (
+    WidgetTester tester,
+  ) async {
+    final Widget inner = Wrapper(child: StatefulWrapper(key: GlobalKey(), child: Container()));
+    await tester.pumpWidget(
+      FlipWidget(
+        left: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            return inner;
+          },
+        ),
+        right: inner,
       ),
     );
-    await tester.pumpWidget(new FlipWidget(
-      left: new LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {
-        return inner;
-      }),
-      right: inner,
-    ));
-    statefulWrapper = tester.state(find.byType(StatefulWrapper));
+    final StatefulWrapperState statefulWrapper = tester.state(find.byType(StatefulWrapper));
     expect(statefulWrapper.built, true);
     statefulWrapper.built = false;
 

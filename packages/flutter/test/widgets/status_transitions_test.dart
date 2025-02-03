@@ -1,16 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 class TestStatusTransitionWidget extends StatusTransitionWidget {
-  const TestStatusTransitionWidget({
-    Key key,
-    this.builder,
-    Animation<double> animation,
-  }) : super(key: key, animation: animation);
+  const TestStatusTransitionWidget({super.key, required this.builder, required super.animation});
 
   final WidgetBuilder builder;
 
@@ -21,19 +17,22 @@ class TestStatusTransitionWidget extends StatusTransitionWidget {
 void main() {
   testWidgets('Status transition control test', (WidgetTester tester) async {
     bool didBuild = false;
-    final AnimationController controller = new AnimationController(
+    final AnimationController controller = AnimationController(
       duration: const Duration(seconds: 1),
       vsync: const TestVSync(),
     );
+    addTearDown(controller.dispose);
 
-    await tester.pumpWidget(new TestStatusTransitionWidget(
-      animation: controller,
-      builder: (BuildContext context) {
-        expect(didBuild, isFalse);
-        didBuild = true;
-        return new Container();
-      },
-    ));
+    await tester.pumpWidget(
+      TestStatusTransitionWidget(
+        animation: controller,
+        builder: (BuildContext context) {
+          expect(didBuild, isFalse);
+          didBuild = true;
+          return Container();
+        },
+      ),
+    );
 
     expect(didBuild, isTrue);
     didBuild = false;
@@ -58,19 +57,22 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(didBuild, isFalse);
 
-    final AnimationController anotherController = new AnimationController(
+    final AnimationController anotherController = AnimationController(
       duration: const Duration(seconds: 1),
       vsync: const TestVSync(),
     );
+    addTearDown(anotherController.dispose);
 
-    await tester.pumpWidget(new TestStatusTransitionWidget(
-      animation: anotherController,
-      builder: (BuildContext context) {
-        expect(didBuild, isFalse);
-        didBuild = true;
-        return new Container();
-      },
-    ));
+    await tester.pumpWidget(
+      TestStatusTransitionWidget(
+        animation: anotherController,
+        builder: (BuildContext context) {
+          expect(didBuild, isFalse);
+          didBuild = true;
+          return Container();
+        },
+      ),
+    );
 
     expect(didBuild, isTrue);
     didBuild = false;

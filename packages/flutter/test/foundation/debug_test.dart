@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('debugInstrumentAction', () {
-    DebugPrintCallback originalDebugPrintCallback;
-    StringBuffer printBuffer;
+    late DebugPrintCallback originalDebugPrintCallback;
+    late StringBuffer printBuffer;
 
     setUp(() {
       debugInstrumentationEnabled = true;
-      printBuffer = new StringBuffer();
+      printBuffer = StringBuffer();
       originalDebugPrintCallback = debugPrint;
-      debugPrint = (String message, {int wrapWidth}) {
+      debugPrint = (String? message, {int? wrapWidth}) {
         printBuffer.writeln(message);
       };
     });
@@ -32,21 +32,19 @@ void main() {
       expect(result, 1);
       expect(
         printBuffer.toString(),
-        matches(new RegExp('^action\\(\\)\nAction "no-op" took .+\$', multiLine: true)),
+        matches(RegExp('^action\\(\\)\nAction "no-op" took .+\$', multiLine: true)),
       );
     });
 
     test('returns failing future if action throws', () async {
-      try {
-        await debugInstrumentAction<void>('throws', () async {
-          await new Future<void>.delayed(Duration.zero);
+      await expectLater(
+        () => debugInstrumentAction<void>('throws', () async {
+          await Future<void>.delayed(Duration.zero);
           throw 'Error';
-        });
-        fail('Error expected but not thrown');
-      } on String catch (error) {
-        expect(error, 'Error');
-        expect(printBuffer.toString(), matches(r'^Action "throws" took .+'));
-      }
+        }),
+        throwsA('Error'),
+      );
+      expect(printBuffer.toString(), matches(r'^Action "throws" took .+'));
     });
   });
 }

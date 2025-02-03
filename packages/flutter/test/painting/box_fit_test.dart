@@ -1,10 +1,9 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:flutter/painting.dart';
-
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('applyBoxFit', () {
@@ -22,9 +21,17 @@ void main() {
     expect(result.source, equals(const Size(2000.0, 200.0)));
     expect(result.destination, equals(const Size(1000.0, 100.0)));
 
+    result = applyBoxFit(BoxFit.fitWidth, const Size(2000.0, 400.0), const Size(1000.0, 300.0));
+    expect(result.source, equals(const Size(2000.0, 400.0)));
+    expect(result.destination, equals(const Size(1000.0, 200.0)));
+
     result = applyBoxFit(BoxFit.fitHeight, const Size(400.0, 2000.0), const Size(100.0, 1000.0));
     expect(result.source, equals(const Size(200.0, 2000.0)));
     expect(result.destination, equals(const Size(100.0, 1000.0)));
+
+    result = applyBoxFit(BoxFit.fitHeight, const Size(400.0, 2000.0), const Size(300.0, 1000.0));
+    expect(result.source, equals(const Size(400.0, 2000.0)));
+    expect(result.destination, equals(const Size(200.0, 1000.0)));
 
     _testZeroAndNegativeSizes(BoxFit.fill);
     _testZeroAndNegativeSizes(BoxFit.contain);
@@ -37,37 +44,37 @@ void main() {
 }
 
 void _testZeroAndNegativeSizes(BoxFit fit) {
-    FittedSizes result;
+  FittedSizes result;
 
-    result = applyBoxFit(fit, const Size(-400.0, 2000.0), const Size(100.0, 1000.0));
-    expect(result.source, equals(Size.zero));
-    expect(result.destination, equals(Size.zero));
+  result = applyBoxFit(fit, const Size(-400.0, 2000.0), const Size(100.0, 1000.0));
+  expect(result.source, equals(Size.zero));
+  expect(result.destination, equals(Size.zero));
 
-    result = applyBoxFit(fit, const Size(400.0, -2000.0), const Size(100.0, 1000.0));
-    expect(result.source, equals(Size.zero));
-    expect(result.destination, equals(Size.zero));
+  result = applyBoxFit(fit, const Size(400.0, -2000.0), const Size(100.0, 1000.0));
+  expect(result.source, equals(Size.zero));
+  expect(result.destination, equals(Size.zero));
 
-    result = applyBoxFit(fit, const Size(400.0, 2000.0), const Size(-100.0, 1000.0));
-    expect(result.source, equals(Size.zero));
-    expect(result.destination, equals(Size.zero));
+  result = applyBoxFit(fit, const Size(400.0, 2000.0), const Size(-100.0, 1000.0));
+  expect(result.source, equals(Size.zero));
+  expect(result.destination, equals(Size.zero));
 
-    result = applyBoxFit(fit, const Size(400.0, 2000.0), const Size(100.0, -1000.0));
-    expect(result.source, equals(Size.zero));
-    expect(result.destination, equals(Size.zero));
+  result = applyBoxFit(fit, const Size(400.0, 2000.0), const Size(100.0, -1000.0));
+  expect(result.source, equals(Size.zero));
+  expect(result.destination, equals(Size.zero));
 
-    result = applyBoxFit(fit, const Size(0.0, 2000.0), const Size(100.0, 1000.0));
-    expect(result.source, equals(Size.zero));
-    expect(result.destination, equals(Size.zero));
+  result = applyBoxFit(fit, const Size(0.0, 2000.0), const Size(100.0, 1000.0));
+  expect(result.source, equals(Size.zero));
+  expect(result.destination, equals(Size.zero));
 
-    result = applyBoxFit(fit, const Size(400.0, 0.0), const Size(100.0, 1000.0));
-    expect(result.source, equals(Size.zero));
-    expect(result.destination, equals(Size.zero));
+  result = applyBoxFit(fit, const Size(400.0, 0.0), const Size(100.0, 1000.0));
+  expect(result.source, equals(Size.zero));
+  expect(result.destination, equals(Size.zero));
 
-    result = applyBoxFit(fit, const Size(400.0, 2000.0), const Size(0.0, 1000.0));
-    expect(result.source, equals(Size.zero));
-    expect(result.destination, equals(Size.zero));
+  result = applyBoxFit(fit, const Size(400.0, 2000.0), const Size(0.0, 1000.0));
+  expect(result.source, equals(Size.zero));
+  expect(result.destination, equals(Size.zero));
 
-    result = applyBoxFit(fit, const Size(400.0, 2000.0), const Size(100.0, 0.0));
-    expect(result.source, equals(Size.zero));
-    expect(result.destination, equals(Size.zero));
+  result = applyBoxFit(fit, const Size(400.0, 2000.0), const Size(100.0, 0.0));
+  expect(result.source, equals(Size.zero));
+  expect(result.destination, equals(Size.zero));
 }

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,15 @@
 /// ```dart
 /// class A {
 ///   const A(this.i);
-///   int i;
+///   final int? i;
 /// }
 ///
-/// main () {
+/// void main () {
 ///   // prevent prefer_const_constructors lint
-///   new A(nonconst(null));
+///   A(nonconst(null));
 ///
 ///   // prevent prefer_const_declarations lint
-///   final int $null = nonconst(null);
+///   final int? $null = nonconst(null);
 ///   final A a = nonconst(const A(null));
 /// }
 /// ```

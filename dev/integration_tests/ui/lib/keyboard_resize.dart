@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,55 +8,65 @@ import 'package:flutter_driver/driver_extension.dart';
 import 'keys.dart' as keys;
 
 void main() {
-  enableFlutterDriverExtension(handler: (String message) async {
-    // TODO(cbernaschina) remove when test flakiness is resolved
-    return 'keyboard_resize';
-  });
-  runApp(new MyApp());
+  enableFlutterDriverExtension(
+    handler: (String? message) async {
+      // TODO(cbernaschina): remove when test flakiness is resolved
+      return 'keyboard_resize';
+    },
+  );
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return new MaterialApp(
+    return MaterialApp(
       title: 'Text Editing',
-      theme: new ThemeData(primarySwatch: Colors.blue),
-      home: new MyHomePage(),
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: const MyHomePage(),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key});
+
   @override
-  _MyHomePageState createState() => new _MyHomePageState();
+  State<MyHomePage> createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final TextEditingController _controller = new TextEditingController();
+  final TextEditingController _controller = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
-    final TextField textField = new TextField(
+    final TextField textField = TextField(
       key: const Key(keys.kDefaultTextField),
       controller: _controller,
-      focusNode: new FocusNode(),
+      focusNode: FocusNode(),
     );
-    return new Scaffold(
-      body: new Stack(
+    return Scaffold(
+      body: Stack(
         fit: StackFit.expand,
         alignment: Alignment.bottomCenter,
         children: <Widget>[
-          new LayoutBuilder(
+          LayoutBuilder(
             builder: (BuildContext context, BoxConstraints constraints) {
-              return new Center(child: new Text('${constraints.biggest.height}', key: const Key(keys.kHeightText)));
-            }
+              return Center(
+                child: Text('${constraints.biggest.height}', key: const Key(keys.kHeightText)),
+              );
+            },
           ),
           textField,
         ],
       ),
-      floatingActionButton: new FloatingActionButton(
+      floatingActionButton: FloatingActionButton(
         key: const Key(keys.kUnfocusButton),
-        onPressed: () { textField.focusNode.unfocus(); },
+        onPressed: () {
+          textField.focusNode!.unfocus();
+        },
         tooltip: 'Unfocus',
         child: const Icon(Icons.done),
       ),

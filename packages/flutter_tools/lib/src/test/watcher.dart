@@ -1,45 +1,28 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
-import '../base/io.dart' show Process;
+import 'test_device.dart';
 
 /// Callbacks for reporting progress while running tests.
 abstract class TestWatcher {
-  /// Called after a child process starts.
+  /// Called after the test device starts.
   ///
-  /// If startPaused was true, the caller needs to resume in Observatory to
+  /// If startPaused was true, the caller needs to resume in DevTools to
   /// start running the tests.
-  void onStartedProcess(ProcessEvent event) {}
+  void handleStartedDevice(Uri? vmServiceUri) {}
 
-  /// Called after the tests finish but before the process exits.
+  /// Called after the tests finish but before the test device exits.
   ///
-  /// The child process won't exit until this method completes.
-  /// Not called if the process died.
-  Future<void> onFinishedTest(ProcessEvent event) async {}
+  /// The test device won't exit until this method completes.
+  /// Not called if the test device died.
+  Future<void> handleFinishedTest(TestDevice testDevice);
 
-  /// Called when the test process crashed before connecting to test harness.
-  Future<void> onTestCrashed(ProcessEvent event) async {}
+  /// Called when the test device crashed before it could be connected to the
+  /// test harness.
+  Future<void> handleTestCrashed(TestDevice testDevice);
 
-  /// Called if we timed out waiting for the test process to connect to test
+  /// Called if we timed out waiting for the test device to connect to test
   /// harness.
-  Future<void> onTestTimedOut(ProcessEvent event) async {}
-}
-
-/// Describes a child process started during testing.
-class ProcessEvent {
-  ProcessEvent(this.childIndex, this.process, [this.observatoryUri]);
-
-  /// The index assigned when the child process was launched.
-  ///
-  /// Indexes are assigned consecutively starting from zero.
-  /// When debugging, there should only be one child process so this will
-  /// always be zero.
-  final int childIndex;
-
-  final Process process;
-
-  /// The observatory Uri or null if not debugging.
-  final Uri observatoryUri;
+  Future<void> handleTestTimedOut(TestDevice testDevice);
 }

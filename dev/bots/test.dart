@@ -1,753 +1,643 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
+// Runs the tests for the flutter/flutter repository.
+//
+// By default, test output is filtered and only errors are shown. (If a
+// particular test takes longer than _quietTimeout in utils.dart, the output is
+// shown then also, in case something has hung.)
+//
+//  --verbose stops the output cleanup and just outputs everything verbatim.
+//
+// By default, errors are non-fatal; all tests are executed and the output
+// ends with a summary of the errors that were detected.
+//
+// Exit code is 1 if there was an error.
+//
+//  --abort-on-error causes the script to exit immediately when hitting an error.
+//
+// By default, all tests are run. However, the tests support being split by
+// shard and subshard. Inspect the code to see what shards and subshards are
+// supported, or run with `--dry-run` to get a list of tests that _would_ have
+// been executed.
+//
+// For local testing you can just set the SHARD and SUBSHARD environment
+// variables. For example, to run all the framework tests you can just set
+// SHARD=framework_tests. Some shards support named subshards, like
+// SHARD=framework_tests SUBSHARD=widgets. Others support arbitrary numbered
+// subsharding, like SHARD=build_tests SUBSHARD=1_2 (where 1_2 means "one of
+// two" as in run the first half of the tests).
+//
+// So for example to run specifically the third subshard of the Web tests you
+// would set SHARD=web_tests SUBSHARD=2 (it's zero-based).
+//
+// By default, where supported, tests within a shard are executed in a random
+// order to (eventually) catch inter-test dependencies.
+//
+//  --test-randomize-ordering-seed=<n> sets the shuffle seed for reproducing runs.
+//
+// All other arguments are treated as arguments to pass to the flutter tool when
+// running tests.
+
 import 'dart:convert';
-import 'dart:io';
+import 'dart:core' as system show print;
+import 'dart:core' hide print;
+import 'dart:io' as system show exit;
+import 'dart:io' hide exit;
+import 'dart:math' as math;
 
 import 'package:path/path.dart' as path;
-import 'package:meta/meta.dart';
 
-typedef Future<Null> ShardRunner();
+import 'run_command.dart';
+import 'suite_runners/run_add_to_app_life_cycle_tests.dart';
+import 'suite_runners/run_analyze_tests.dart';
+import 'suite_runners/run_android_engine_tests.dart';
+import 'suite_runners/run_android_java11_integration_tool_tests.dart';
+import 'suite_runners/run_android_preview_integration_tool_tests.dart';
+import 'suite_runners/run_customer_testing_tests.dart';
+import 'suite_runners/run_docs_tests.dart';
+import 'suite_runners/run_flutter_packages_tests.dart';
+import 'suite_runners/run_framework_coverage_tests.dart';
+import 'suite_runners/run_framework_tests.dart';
+import 'suite_runners/run_fuchsia_precache.dart';
+import 'suite_runners/run_skp_generator_tests.dart';
+import 'suite_runners/run_test_harness_tests.dart';
+import 'suite_runners/run_verify_binaries_codesigned_tests.dart';
+import 'suite_runners/run_web_tests.dart';
+import 'utils.dart';
 
-final String flutterRoot = path.dirname(path.dirname(path.dirname(path.fromUri(Platform.script))));
-final String flutter = path.join(flutterRoot, 'bin', Platform.isWindows ? 'flutter.bat' : 'flutter');
-final String dart = path.join(flutterRoot, 'bin', 'cache', 'dart-sdk', 'bin', Platform.isWindows ? 'dart.exe' : 'dart');
-final String pub = path.join(flutterRoot, 'bin', 'cache', 'dart-sdk', 'bin', Platform.isWindows ? 'pub.bat' : 'pub');
-final String pubCache = path.join(flutterRoot, '.pub-cache');
-final List<String> flutterTestArgs = <String>[];
-final bool hasColor = stdout.supportsAnsiEscapes;
+typedef ShardRunner = Future<void> Function();
 
-final String bold = hasColor ? '\x1B[1m' : '';
-final String red = hasColor ? '\x1B[31m' : '';
-final String green = hasColor ? '\x1B[32m' : '';
-final String yellow = hasColor ? '\x1B[33m' : '';
-final String cyan = hasColor ? '\x1B[36m' : '';
-final String reset = hasColor ? '\x1B[0m' : '';
-const String arrow = '⏩';
-const String clock = '🕐';
-
-const Map<String, ShardRunner> _kShards = <String, ShardRunner>{
-  'analyze': _analyzeRepo,
-  'tests': _runTests,
-  'tool_tests': _runToolTests,
-  'coverage': _runCoverage,
-  // 'docs': handled by travis_script.sh and docs.sh
-  // 'build_and_deploy_gallery': handled by travis_script.sh
-};
-
-const Duration _kLongTimeout = Duration(minutes: 45);
-const Duration _kShortTimeout = Duration(minutes: 5);
+/// Environment variables to override the local engine when running `pub test`,
+/// if such flags are provided to `test.dart`.
+final Map<String, String> localEngineEnv = <String, String>{};
 
 /// When you call this, you can pass additional arguments to pass custom
 /// arguments to flutter test. For example, you might want to call this
 /// script with the parameter --local-engine=host_debug_unopt to
 /// use your own build of the engine.
 ///
-/// To run the analysis part, run it with SHARD=analyze
+/// To run the tool_tests part, run it with SHARD=tool_tests
 ///
-/// For example:
-/// SHARD=analyze bin/cache/dart-sdk/bin/dart dev/bots/test.dart
-/// bin/cache/dart-sdk/bin/dart dev/bots/test.dart --local-engine=host_debug_unopt
-Future<Null> main(List<String> args) async {
-  flutterTestArgs.addAll(args);
-
-  final String shard = Platform.environment['SHARD'];
-  if (shard != null) {
-    if (!_kShards.containsKey(shard)) {
-      print('Invalid shard: $shard');
-      print('The available shards are: ${_kShards.keys.join(", ")}');
-      exit(1);
+/// Examples:
+/// SHARD=tool_tests bin/cache/dart-sdk/bin/dart dev/bots/test.dart
+/// bin/cache/dart-sdk/bin/dart dev/bots/test.dart --local-engine=host_debug_unopt --local-engine-host=host_debug_unopt
+Future<void> main(List<String> args) async {
+  try {
+    printProgress('STARTING ANALYSIS');
+    bool dryRunArgSet = false;
+    for (final String arg in args) {
+      if (arg.startsWith('--local-engine=')) {
+        localEngineEnv['FLUTTER_LOCAL_ENGINE'] = arg.substring('--local-engine='.length);
+        flutterTestArgs.add(arg);
+      } else if (arg.startsWith('--local-engine-host=')) {
+        localEngineEnv['FLUTTER_LOCAL_ENGINE_HOST'] = arg.substring('--local-engine-host='.length);
+        flutterTestArgs.add(arg);
+      } else if (arg.startsWith('--local-engine-src-path=')) {
+        localEngineEnv['FLUTTER_LOCAL_ENGINE_SRC_PATH'] = arg.substring(
+          '--local-engine-src-path='.length,
+        );
+        flutterTestArgs.add(arg);
+      } else if (arg.startsWith('--test-randomize-ordering-seed=')) {
+        shuffleSeed = arg.substring('--test-randomize-ordering-seed='.length);
+      } else if (arg.startsWith('--verbose')) {
+        print = (Object? message) {
+          system.print(message);
+        };
+      } else if (arg.startsWith('--abort-on-error')) {
+        onError = () {
+          system.exit(1);
+        };
+      } else if (arg == '--dry-run') {
+        dryRunArgSet = true;
+        printProgress('--dry-run enabled. Tests will not actually be executed.');
+      } else {
+        flutterTestArgs.add(arg);
+      }
     }
-    print('${bold}SHARD=$shard$reset');
-    await _kShards[shard]();
-  } else {
-    for (String currentShard in _kShards.keys) {
-      print('${bold}SHARD=$currentShard$reset');
-      await _kShards[currentShard]();
-      print('');
+    if (dryRunArgSet) {
+      enableDryRun();
     }
-  }
-}
-
-Future<Null> _verifyInternationalizations() async {
-  final EvalResult genResult = await _evalCommand(
-    dart,
-    <String>[
-      '--preview-dart-2',
-      path.join('dev', 'tools', 'gen_localizations.dart'),
-    ],
-    workingDirectory: flutterRoot,
-  );
-
-  final String localizationsFile = path.join('packages', 'flutter_localizations', 'lib', 'src', 'l10n', 'localizations.dart');
-  final String expectedResult = await new File(localizationsFile).readAsString();
-
-  if (genResult.stdout.trim() != expectedResult.trim()) {
-    stderr
-      ..writeln('<<<<<<< $localizationsFile')
-      ..writeln(expectedResult.trim())
-      ..writeln('=======')
-      ..writeln(genResult.stdout.trim())
-      ..writeln('>>>>>>> gen_localizations')
-      ..writeln('The contents of $localizationsFile are different from that produced by gen_localizations.')
-      ..writeln()
-      ..writeln('Did you forget to run gen_localizations.dart after updating a .arb file?');
-    exit(1);
-  }
-  print('Contents of $localizationsFile matches output of gen_localizations.dart script.');
-}
-
-Future<String> _getCommitRange() async {
-  // Using --fork-point is more conservative, and will result in the correct
-  // fork point, but when running locally, it may return nothing. Git is
-  // guaranteed to return a (reasonable, but maybe not optimal) result when not
-  // using --fork-point, so we fall back to that if we can't get a definitive
-  // fork point. See "git merge-base" documentation for more info.
-  EvalResult result = await _evalCommand(
-    'git',
-    <String>['merge-base', '--fork-point', 'FETCH_HEAD', 'HEAD'],
-    workingDirectory: flutterRoot,
-    allowNonZeroExit: true,
-  );
-  if (result.exitCode != 0) {
-    result = await _evalCommand(
-      'git',
-      <String>['merge-base', 'FETCH_HEAD', 'HEAD'],
-      workingDirectory: flutterRoot,
-    );
-  }
-  return result.stdout.trim();
-}
-
-
-Future<Null> _checkForTrailingSpaces() async {
-  if (!Platform.isWindows) {
-    final String commitRange = Platform.environment.containsKey('TEST_COMMIT_RANGE')
-        ? Platform.environment['TEST_COMMIT_RANGE']
-        : await _getCommitRange();
-    final List<String> fileTypes = <String>[
-      '*.dart', '*.cxx', '*.cpp', '*.cc', '*.c', '*.C', '*.h', '*.java', '*.mm', '*.m', '*.yml',
-    ];
-    final EvalResult changedFilesResult = await _evalCommand(
-      'git', <String>['diff', '-U0', '--no-color', '--name-only', commitRange, '--'] + fileTypes,
-      workingDirectory: flutterRoot,
-    );
-    if (changedFilesResult.stdout == null) {
-      print('No files found that need to be checked for trailing whitespace.');
-      return;
-    }
-    // Only include files that actually exist, so that we don't try and grep for
-    // nonexistent files, which can occur when files are deleted or moved.
-    final List<String> changedFiles = changedFilesResult.stdout.split('\n').where((String filename) {
-      return new File(filename).existsSync();
-    }).toList();
-    if (changedFiles.isNotEmpty) {
-      await _runCommand('grep',
-        <String>[
-          '--line-number',
-          '--extended-regexp',
-          r'[[:blank:]]$',
-        ] + changedFiles,
-        workingDirectory: flutterRoot,
-        failureMessage: '${red}Whitespace detected at the end of source code lines.$reset\nPlease remove:',
-        expectNonZeroExit: true, // Just means a non-zero exit code is expected.
-        expectedExitCode: 1, // Indicates that zero lines were found.
-      );
-    }
-  }
-}
-
-Future<Null> _analyzeRepo() async {
-  await _verifyGeneratedPluginRegistrants(flutterRoot);
-  await _verifyNoBadImportsInFlutter(flutterRoot);
-  await _verifyNoBadImportsInFlutterTools(flutterRoot);
-  await _verifyInternationalizations();
-
-  // Analyze all the Dart code in the repo.
-  await _runFlutterAnalyze(flutterRoot,
-    options: <String>['--flutter-repo'],
-  );
-
-  // Ensure that all package dependencies are in sync.
-  await _runCommand(flutter, <String>['update-packages', '--verify-only'],
-    workingDirectory: flutterRoot,
-  );
-
-  // Analyze all the sample code in the repo
-  await _runCommand(dart,
-    <String>['--preview-dart-2', path.join(flutterRoot, 'dev', 'bots', 'analyze-sample-code.dart')],
-    workingDirectory: flutterRoot,
-  );
-
-  // Try with the --watch analyzer, to make sure it returns success also.
-  // The --benchmark argument exits after one run.
-  await _runFlutterAnalyze(flutterRoot,
-    options: <String>['--flutter-repo', '--watch', '--benchmark'],
-  );
-
-  await _checkForTrailingSpaces();
-
-  // Try an analysis against a big version of the gallery.
-  await _runCommand(dart,
-    <String>['--preview-dart-2', path.join(flutterRoot, 'dev', 'tools', 'mega_gallery.dart')],
-    workingDirectory: flutterRoot,
-  );
-  await _runFlutterAnalyze(path.join(flutterRoot, 'dev', 'benchmarks', 'mega_gallery'),
-    options: <String>['--watch', '--benchmark'],
-  );
-
-  print('${bold}DONE: Analysis successful.$reset');
-}
-
-Future<Null> _runSmokeTests() async {
-  // Verify that the tests actually return failure on failure and success on
-  // success.
-  final String automatedTests = path.join(flutterRoot, 'dev', 'automated_tests');
-  // We run the "pass" and "fail" smoke tests first, and alone, because those
-  // are particularly critical and sensitive. If one of these fails, there's no
-  // point even trying the others.
-  await _runFlutterTest(automatedTests,
-    script: path.join('test_smoke_test', 'pass_test.dart'),
-    printOutput: false,
-    timeout: _kShortTimeout,
-  );
-  await _runFlutterTest(automatedTests,
-    script: path.join('test_smoke_test', 'fail_test.dart'),
-    expectFailure: true,
-    printOutput: false,
-    timeout: _kShortTimeout,
-  );
-  // We run the timeout tests individually because they are timing-sensitive.
-  await _runFlutterTest(automatedTests,
-    script: path.join('test_smoke_test', 'timeout_pass_test.dart'),
-    expectFailure: false,
-    printOutput: false,
-    timeout: _kShortTimeout,
-  );
-  await _runFlutterTest(automatedTests,
-    script: path.join('test_smoke_test', 'timeout_fail_test.dart'),
-    expectFailure: true,
-    printOutput: false,
-    timeout: _kShortTimeout,
-  );
-  // We run the remaining smoketests in parallel, because they each take some
-  // time to run (e.g. compiling), so we don't want to run them in series,
-  // especially on 20-core machines...
-  await Future.wait<void>(
-    <Future<void>>[
-      _runFlutterTest(automatedTests,
-        script: path.join('test_smoke_test', 'crash1_test.dart'),
-        expectFailure: true,
-        printOutput: false,
-        timeout: _kShortTimeout,
-      ),
-      _runFlutterTest(automatedTests,
-        script: path.join('test_smoke_test', 'crash2_test.dart'),
-        expectFailure: true,
-        printOutput: false,
-        timeout: _kShortTimeout,
-      ),
-      _runFlutterTest(automatedTests,
-        script: path.join('test_smoke_test', 'syntax_error_test.broken_dart'),
-        expectFailure: true,
-        printOutput: false,
-        timeout: _kShortTimeout,
-      ),
-      _runFlutterTest(automatedTests,
-        script: path.join('test_smoke_test', 'missing_import_test.broken_dart'),
-        expectFailure: true,
-        printOutput: false,
-        timeout: _kShortTimeout,
-      ),
-      _runFlutterTest(automatedTests,
-        script: path.join('test_smoke_test', 'disallow_error_reporter_modification_test.dart'),
-        expectFailure: true,
-        printOutput: false,
-        timeout: _kShortTimeout,
-      ),
-      _runCommand(flutter,
-        <String>['drive', '--use-existing-app', '-t', path.join('test_driver', 'failure.dart')],
-        workingDirectory: path.join(flutterRoot, 'packages', 'flutter_driver'),
-        expectNonZeroExit: true,
-        printOutput: false,
-        timeout: _kShortTimeout,
-      ),
-    ],
-  );
-
-  // Verify that we correctly generated the version file.
-  await _verifyVersion(path.join(flutterRoot, 'version'));
-}
-
-Future<Null> _runToolTests() async {
-  await _runSmokeTests();
-
-  await _pubRunTest(path.join(flutterRoot, 'packages', 'flutter_tools'));
-
-  print('${bold}DONE: All tests successful.$reset');
-}
-
-Future<Null> _runTests() async {
-  await _runSmokeTests();
-
-  await _runFlutterTest(path.join(flutterRoot, 'packages', 'flutter'));
-  await _runFlutterTest(path.join(flutterRoot, 'packages', 'flutter_localizations'));
-  await _runFlutterTest(path.join(flutterRoot, 'packages', 'flutter_driver'));
-  await _runFlutterTest(path.join(flutterRoot, 'packages', 'flutter_test'));
-  await _runFlutterTest(path.join(flutterRoot, 'packages', 'fuchsia_remote_debug_protocol'));
-  await _pubRunTest(path.join(flutterRoot, 'dev', 'bots'));
-  await _pubRunTest(path.join(flutterRoot, 'dev', 'devicelab'));
-  await _runFlutterTest(path.join(flutterRoot, 'dev', 'manual_tests'));
-  await _runFlutterTest(path.join(flutterRoot, 'dev', 'tools', 'vitool'));
-  await _runFlutterTest(path.join(flutterRoot, 'examples', 'hello_world'));
-  await _runFlutterTest(path.join(flutterRoot, 'examples', 'layers'));
-  await _runFlutterTest(path.join(flutterRoot, 'examples', 'stocks'));
-  await _runFlutterTest(path.join(flutterRoot, 'examples', 'flutter_gallery'));
-  await _runFlutterTest(path.join(flutterRoot, 'examples', 'catalog'));
-
-  print('${bold}DONE: All tests successful.$reset');
-}
-
-Future<Null> _runCoverage() async {
-  final File coverageFile = new File(path.join(flutterRoot, 'packages', 'flutter', 'coverage', 'lcov.info'));
-  if (!coverageFile.existsSync()) {
-    print('${red}Coverage file not found.$reset');
-    print('Expected to find: ${coverageFile.absolute}');
-    print('This file is normally obtained by running `flutter update-packages`.');
-    exit(1);
-  }
-  coverageFile.deleteSync();
-  await _runFlutterTest(path.join(flutterRoot, 'packages', 'flutter'),
-    options: const <String>['--coverage'],
-  );
-  if (!coverageFile.existsSync()) {
-    print('${red}Coverage file not found.$reset');
-    print('Expected to find: ${coverageFile.absolute}');
-    print('This file should have been generated by the `flutter test --coverage` script, but was not.');
-    exit(1);
-  }
-
-  print('${bold}DONE: Coverage collection successful.$reset');
-}
-
-Future<Null> _pubRunTest(
-  String workingDirectory, {
-  String testPath,
-}) {
-  final List<String> args = <String>['run', 'test', '-j1', '-rcompact'];
-  if (!hasColor)
-    args.add('--no-color');
-  if (testPath != null)
-    args.add(testPath);
-  final Map<String, String> pubEnvironment = <String, String>{};
-  if (new Directory(pubCache).existsSync()) {
-    pubEnvironment['PUB_CACHE'] = pubCache;
-  }
-  return _runCommand(
-    pub, args,
-    workingDirectory: workingDirectory,
-    environment: pubEnvironment,
-  );
-}
-
-class EvalResult {
-  EvalResult({
-    this.stdout,
-    this.stderr,
-    this.exitCode = 0,
-  });
-
-  final String stdout;
-  final String stderr;
-  final int exitCode;
-}
-
-Future<EvalResult> _evalCommand(String executable, List<String> arguments, {
-  @required String workingDirectory,
-  Map<String, String> environment,
-  bool skip = false,
-  bool allowNonZeroExit = false,
-}) async {
-  final String commandDescription = '${path.relative(executable, from: workingDirectory)} ${arguments.join(' ')}';
-  final String relativeWorkingDir = path.relative(workingDirectory);
-  if (skip) {
-    _printProgress('SKIPPING', relativeWorkingDir, commandDescription);
-    return null;
-  }
-  _printProgress('RUNNING', relativeWorkingDir, commandDescription);
-
-  final DateTime start = new DateTime.now();
-  final Process process = await Process.start(executable, arguments,
-    workingDirectory: workingDirectory,
-    environment: environment,
-  );
-
-  final Future<List<List<int>>> savedStdout = process.stdout.toList();
-  final Future<List<List<int>>> savedStderr = process.stderr.toList();
-  final int exitCode = await process.exitCode;
-  final EvalResult result = new EvalResult(
-    stdout: utf8.decode((await savedStdout).expand((List<int> ints) => ints).toList()),
-    stderr: utf8.decode((await savedStderr).expand((List<int> ints) => ints).toList()),
-    exitCode: exitCode,
-  );
-
-  print('$clock ELAPSED TIME: $bold${elapsedTime(start)}$reset for $commandDescription in $relativeWorkingDir: ');
-
-  if (exitCode != 0 && !allowNonZeroExit) {
-    stderr.write(result.stderr);
-    print(
-      '$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset\n'
-      '${bold}ERROR:$red Last command exited with $exitCode.$reset\n'
-      '${bold}Command:$red $commandDescription$reset\n'
-      '${bold}Relative working directory:$red $relativeWorkingDir$reset\n'
-      '$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset'
-    );
-    exit(1);
-  }
-
-  return result;
-}
-
-String elapsedTime(DateTime start) {
-  return new DateTime.now().difference(start).toString();
-}
-
-Future<Null> _runCommand(String executable, List<String> arguments, {
-  String workingDirectory,
-  Map<String, String> environment,
-  bool expectNonZeroExit = false,
-  int expectedExitCode,
-  String failureMessage,
-  bool printOutput = true,
-  bool skip = false,
-  Duration timeout = _kLongTimeout,
-}) async {
-  final String commandDescription = '${path.relative(executable, from: workingDirectory)} ${arguments.join(' ')}';
-  final String relativeWorkingDir = path.relative(workingDirectory);
-  if (skip) {
-    _printProgress('SKIPPING', relativeWorkingDir, commandDescription);
-    return null;
-  }
-  _printProgress('RUNNING', relativeWorkingDir, commandDescription);
-
-  final DateTime start = new DateTime.now();
-  final Process process = await Process.start(executable, arguments,
-    workingDirectory: workingDirectory,
-    environment: environment,
-  );
-
-  Future<List<List<int>>> savedStdout, savedStderr;
-  if (printOutput) {
-    await Future.wait(<Future<void>>[
-      stdout.addStream(process.stdout),
-      stderr.addStream(process.stderr)
+    final WebTestsSuite webTestsSuite = WebTestsSuite(flutterTestArgs);
+    await selectShard(<String, ShardRunner>{
+      'add_to_app_life_cycle_tests': addToAppLifeCycleRunner,
+      'build_tests': _runBuildTests,
+      'framework_coverage': frameworkCoverageRunner,
+      'framework_tests': frameworkTestsRunner,
+      'tool_tests': _runToolTests,
+      'web_tool_tests': _runWebToolTests,
+      'tool_integration_tests': _runIntegrationToolTests,
+      'android_preview_tool_integration_tests': androidPreviewIntegrationToolTestsRunner,
+      'android_java11_tool_integration_tests': androidJava11IntegrationToolTestsRunner,
+      'tool_host_cross_arch_tests': _runToolHostCrossArchTests,
+      // All the unit/widget tests run using `flutter test --platform=chrome`
+      'web_canvaskit_tests': webTestsSuite.runWebCanvasKitUnitTests,
+      // All the unit/widget tests run using `flutter test --platform=chrome --wasm`
+      'web_skwasm_tests': webTestsSuite.runWebSkwasmUnitTests,
+      // All web integration tests
+      'web_long_running_tests': webTestsSuite.webLongRunningTestsRunner,
+      'android_engine_vulkan_tests':
+          () => runAndroidEngineTests(impellerBackend: ImpellerBackend.vulkan),
+      'android_engine_opengles_tests':
+          () => runAndroidEngineTests(impellerBackend: ImpellerBackend.opengles),
+      'flutter_plugins': flutterPackagesRunner,
+      'skp_generator': skpGeneratorTestsRunner,
+      'customer_testing': customerTestingRunner,
+      'analyze': analyzeRunner,
+      'fuchsia_precache': fuchsiaPrecacheRunner,
+      'snippets': _runSnippetsTests,
+      'docs': docsRunner,
+      'verify_binaries_codesigned': verifyCodesignedTestRunner,
+      kTestHarnessShardName:
+          testHarnessTestsRunner, // Used for testing this script; also run as part of SHARD=framework_tests, SUBSHARD=misc.
+    });
+  } catch (error, stackTrace) {
+    foundError(<String>[
+      'UNEXPECTED ERROR!',
+      error.toString(),
+      ...stackTrace.toString().split('\n'),
+      'The test.dart script should be corrected to catch this error and call foundError().',
+      '${yellow}Some tests are likely to have been skipped.$reset',
     ]);
+    system.exit(255);
+  }
+  if (hasError) {
+    reportErrorsAndExit('${bold}Test failed.$reset');
+  }
+  reportSuccessAndExit('${bold}Test successful.$reset');
+}
+
+final String _toolsPath = path.join(flutterRoot, 'packages', 'flutter_tools');
+
+Future<void> _runGeneralToolTests() async {
+  await runDartTest(
+    _toolsPath,
+    testPaths: <String>[path.join('test', 'general.shard')],
+    enableFlutterToolAsserts: false,
+
+    // Detect unit test time regressions (poor time delay handling, etc).
+    // This overrides the 15 minute default for tools tests.
+    // See the README.md and dart_test.yaml files in the flutter_tools package.
+    perTestTimeout: const Duration(seconds: 2),
+  );
+}
+
+Future<void> _runCommandsToolTests() async {
+  await runDartTest(
+    _toolsPath,
+    forceSingleCore: true,
+    testPaths: <String>[path.join('test', 'commands.shard')],
+  );
+}
+
+Future<void> _runWebToolTests() async {
+  final List<File> allFiles =
+      Directory(
+        path.join(_toolsPath, 'test', 'web.shard'),
+      ).listSync(recursive: true).whereType<File>().toList();
+  final List<String> allTests = <String>[];
+  for (final File file in allFiles) {
+    if (file.path.endsWith('_test.dart')) {
+      allTests.add(file.path);
+    }
+  }
+  await runDartTest(
+    _toolsPath,
+    forceSingleCore: true,
+    testPaths: selectIndexOfTotalSubshard<String>(allTests),
+    includeLocalEngineEnv: true,
+  );
+}
+
+Future<void> _runToolHostCrossArchTests() {
+  return runDartTest(
+    _toolsPath,
+    // These are integration tests
+    forceSingleCore: true,
+    testPaths: <String>[path.join('test', 'host_cross_arch.shard')],
+  );
+}
+
+Future<void> _runIntegrationToolTests() async {
+  final List<String> allTests =
+      Directory(path.join(_toolsPath, 'test', 'integration.shard'))
+          .listSync(recursive: true)
+          .whereType<File>()
+          .map<String>((FileSystemEntity entry) => path.relative(entry.path, from: _toolsPath))
+          .where((String testPath) => path.basename(testPath).endsWith('_test.dart'))
+          .toList();
+
+  await runDartTest(
+    _toolsPath,
+    forceSingleCore: true,
+    testPaths: selectIndexOfTotalSubshard<String>(allTests),
+    collectMetrics: true,
+  );
+}
+
+Future<void> _runToolTests() async {
+  await selectSubshard(<String, ShardRunner>{
+    'general': _runGeneralToolTests,
+    'commands': _runCommandsToolTests,
+  });
+}
+
+Future<void> _runSnippetsTests() async {
+  final String snippetsPath = path.join(flutterRoot, 'dev', 'snippets');
+  final List<String> allTests =
+      Directory(path.join(snippetsPath, 'test'))
+          .listSync(recursive: true)
+          .whereType<File>()
+          .map<String>((FileSystemEntity entry) => path.relative(entry.path, from: _toolsPath))
+          .where((String testPath) => path.basename(testPath).endsWith('_test.dart'))
+          .toList();
+
+  await runDartTest(
+    snippetsPath,
+    forceSingleCore: true,
+    testPaths: selectIndexOfTotalSubshard<String>(allTests),
+    collectMetrics: true,
+  );
+}
+
+Future<void> runForbiddenFromReleaseTests() async {
+  // Build a release APK to get the snapshot json.
+  final Directory tempDirectory = Directory.systemTemp.createTempSync('flutter_forbidden_imports.');
+  final List<String> command = <String>[
+    'build',
+    'apk',
+    '--target-platform',
+    'android-arm64',
+    '--release',
+    '--analyze-size',
+    '--code-size-directory',
+    tempDirectory.path,
+    '-v',
+  ];
+
+  await runCommand(
+    flutter,
+    command,
+    workingDirectory: path.join(flutterRoot, 'examples', 'hello_world'),
+  );
+
+  // First, a smoke test.
+  final List<String> smokeTestArgs = <String>[
+    path.join(flutterRoot, 'dev', 'forbidden_from_release_tests', 'bin', 'main.dart'),
+    '--snapshot',
+    path.join(tempDirectory.path, 'snapshot.arm64-v8a.json'),
+    '--package-config',
+    path.join(flutterRoot, 'examples', 'hello_world', '.dart_tool', 'package_config.json'),
+    '--forbidden-type',
+    'package:flutter/src/widgets/framework.dart::Widget',
+  ];
+  await runCommand(dart, smokeTestArgs, workingDirectory: flutterRoot, expectNonZeroExit: true);
+
+  // Actual test.
+  final List<String> args = <String>[
+    path.join(flutterRoot, 'dev', 'forbidden_from_release_tests', 'bin', 'main.dart'),
+    '--snapshot',
+    path.join(tempDirectory.path, 'snapshot.arm64-v8a.json'),
+    '--package-config',
+    path.join(flutterRoot, 'examples', 'hello_world', '.dart_tool', 'package_config.json'),
+    '--forbidden-type',
+    'package:flutter/src/widgets/widget_inspector.dart::WidgetInspectorService',
+    '--forbidden-type',
+    'package:flutter/src/widgets/framework.dart::DebugCreator',
+    '--forbidden-type',
+    'package:flutter/src/foundation/print.dart::debugPrint',
+  ];
+  await runCommand(dart, args, workingDirectory: flutterRoot);
+}
+
+/// Verifies that APK, and IPA (if on macOS), and native desktop builds the
+/// examples apps without crashing. It does not actually launch the apps. That
+/// happens later in the devicelab. This is just a smoke-test. In particular,
+/// this will verify we can build when there are spaces in the path name for the
+/// Flutter SDK and target app.
+///
+/// Also does some checking about types included in hello_world.
+Future<void> _runBuildTests() async {
+  final List<Directory> exampleDirectories =
+      Directory(path.join(flutterRoot, 'examples'))
+          .listSync()
+          // API example builds will be tested in a separate shard.
+          .where(
+            (FileSystemEntity entity) => entity is Directory && path.basename(entity.path) != 'api',
+          )
+          .cast<Directory>()
+          .toList()
+        ..add(Directory(path.join(flutterRoot, 'packages', 'integration_test', 'example')))
+        ..add(
+          Directory(
+            path.join(flutterRoot, 'dev', 'integration_tests', 'android_semantics_testing'),
+          ),
+        )
+        ..add(Directory(path.join(flutterRoot, 'dev', 'integration_tests', 'android_views')))
+        ..add(Directory(path.join(flutterRoot, 'dev', 'integration_tests', 'channels')))
+        ..add(Directory(path.join(flutterRoot, 'dev', 'integration_tests', 'hybrid_android_views')))
+        ..add(Directory(path.join(flutterRoot, 'dev', 'integration_tests', 'flutter_gallery')))
+        ..add(
+          Directory(path.join(flutterRoot, 'dev', 'integration_tests', 'ios_platform_view_tests')),
+        )
+        ..add(
+          Directory(path.join(flutterRoot, 'dev', 'integration_tests', 'ios_app_with_extensions')),
+        )
+        ..add(Directory(path.join(flutterRoot, 'dev', 'integration_tests', 'non_nullable')))
+        ..add(Directory(path.join(flutterRoot, 'dev', 'integration_tests', 'platform_interaction')))
+        ..add(Directory(path.join(flutterRoot, 'dev', 'integration_tests', 'spell_check')))
+        ..add(Directory(path.join(flutterRoot, 'dev', 'integration_tests', 'ui')));
+
+  // The tests are randomly distributed into subshards so as to get a uniform
+  // distribution of costs, but the seed is fixed so that issues are reproducible.
+  final List<ShardRunner> tests = <ShardRunner>[
+    for (final Directory exampleDirectory in exampleDirectories)
+      () => _runExampleProjectBuildTests(exampleDirectory),
+    ...<ShardRunner>[
+      // Web compilation tests.
+      () => _flutterBuildDart2js(
+        path.join('dev', 'integration_tests', 'web'),
+        path.join('lib', 'main.dart'),
+      ),
+      // Should not fail to compile with dart:io.
+      () => _flutterBuildDart2js(
+        path.join('dev', 'integration_tests', 'web_compile_tests'),
+        path.join('lib', 'dart_io_import.dart'),
+      ),
+      // Should be able to compile with a call to:
+      // BackgroundIsolateBinaryMessenger.ensureInitialized.
+      () => _flutterBuildDart2js(
+        path.join('dev', 'integration_tests', 'web_compile_tests'),
+        path.join('lib', 'background_isolate_binary_messenger.dart'),
+      ),
+    ],
+    runForbiddenFromReleaseTests,
+  ]..shuffle(math.Random(0));
+
+  await runShardRunnerIndexOfTotalSubshard(tests);
+}
+
+Future<void> _runExampleProjectBuildTests(Directory exampleDirectory, [File? mainFile]) async {
+  // Only verify caching with flutter gallery.
+  final bool verifyCaching = exampleDirectory.path.contains('flutter_gallery');
+  final String examplePath = path.relative(exampleDirectory.path, from: Directory.current.path);
+  final List<String> additionalArgs = <String>[
+    if (mainFile != null) path.relative(mainFile.path, from: exampleDirectory.absolute.path),
+  ];
+  if (Directory(path.join(examplePath, 'android')).existsSync()) {
+    await _flutterBuildApk(
+      examplePath,
+      release: false,
+      additionalArgs: additionalArgs,
+      verifyCaching: verifyCaching,
+    );
+    await _flutterBuildApk(
+      examplePath,
+      release: true,
+      additionalArgs: additionalArgs,
+      verifyCaching: verifyCaching,
+    );
   } else {
-    savedStdout = process.stdout.toList();
-    savedStderr = process.stderr.toList();
+    print('Example project ${path.basename(examplePath)} has no android directory, skipping apk');
   }
-
-  final int exitCode = await process.exitCode.timeout(timeout, onTimeout: () {
-    stderr.writeln('Process timed out after $timeout');
-    return expectNonZeroExit ? 0 : 1;
-  });
-  print('$clock ELAPSED TIME: $bold${elapsedTime(start)}$reset for $commandDescription in $relativeWorkingDir: ');
-  if ((exitCode == 0) == expectNonZeroExit || (expectedExitCode != null && exitCode != expectedExitCode)) {
-    if (failureMessage != null) {
-      print(failureMessage);
+  if (Platform.isMacOS) {
+    if (Directory(path.join(examplePath, 'ios')).existsSync()) {
+      await _flutterBuildIpa(
+        examplePath,
+        release: false,
+        additionalArgs: additionalArgs,
+        verifyCaching: verifyCaching,
+      );
+      await _flutterBuildIpa(
+        examplePath,
+        release: true,
+        additionalArgs: additionalArgs,
+        verifyCaching: verifyCaching,
+      );
+    } else {
+      print('Example project ${path.basename(examplePath)} has no ios directory, skipping ipa');
     }
-    if (!printOutput) {
-      stdout.writeln(utf8.decode((await savedStdout).expand((List<int> ints) => ints).toList()));
-      stderr.writeln(utf8.decode((await savedStderr).expand((List<int> ints) => ints).toList()));
+  }
+  if (Platform.isLinux) {
+    if (Directory(path.join(examplePath, 'linux')).existsSync()) {
+      await _flutterBuildLinux(
+        examplePath,
+        release: false,
+        additionalArgs: additionalArgs,
+        verifyCaching: verifyCaching,
+      );
+      await _flutterBuildLinux(
+        examplePath,
+        release: true,
+        additionalArgs: additionalArgs,
+        verifyCaching: verifyCaching,
+      );
+    } else {
+      print('Example project ${path.basename(examplePath)} has no linux directory, skipping Linux');
     }
-    print(
-      '$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset\n'
-      '${bold}ERROR:$red Last command exited with $exitCode (expected: ${expectNonZeroExit ? (expectedExitCode ?? 'non-zero') : 'zero'}).$reset\n'
-      '${bold}Command:$cyan $commandDescription$reset\n'
-      '${bold}Relative working directory:$red $relativeWorkingDir$reset\n'
-      '$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset'
-    );
-    exit(1);
   }
-}
-
-Future<Null> _runFlutterTest(String workingDirectory, {
-  String script,
-  bool expectFailure = false,
-  bool printOutput = true,
-  List<String> options = const <String>[],
-  bool skip = false,
-  Duration timeout = _kLongTimeout,
-}) {
-  final List<String> args = <String>['test']..addAll(options);
-  if (flutterTestArgs != null && flutterTestArgs.isNotEmpty)
-    args.addAll(flutterTestArgs);
-  if (script != null) {
-    final String fullScriptPath = path.join(workingDirectory, script);
-    if (!FileSystemEntity.isFileSync(fullScriptPath)) {
-      print('Could not find test: $fullScriptPath');
-      print('Working directory: $workingDirectory');
-      print('Script: $script');
-      if (!printOutput)
-        print('This is one of the tests that does not normally print output.');
-      if (skip)
-        print('This is one of the tests that is normally skipped in this configuration.');
-      exit(1);
+  if (Platform.isMacOS) {
+    if (Directory(path.join(examplePath, 'macos')).existsSync()) {
+      await _flutterBuildMacOS(
+        examplePath,
+        release: false,
+        additionalArgs: additionalArgs,
+        verifyCaching: verifyCaching,
+      );
+      await _flutterBuildMacOS(
+        examplePath,
+        release: true,
+        additionalArgs: additionalArgs,
+        verifyCaching: verifyCaching,
+      );
+    } else {
+      print('Example project ${path.basename(examplePath)} has no macos directory, skipping macOS');
     }
-    args.add(script);
   }
-  return _runCommand(flutter, args,
-    workingDirectory: workingDirectory,
-    expectNonZeroExit: expectFailure,
-    printOutput: printOutput,
-    skip: skip,
-    timeout: timeout,
-  );
-}
-
-Future<Null> _runFlutterAnalyze(String workingDirectory, {
-  List<String> options = const <String>[]
-}) {
-  return _runCommand(flutter, <String>['analyze']..addAll(options),
-    workingDirectory: workingDirectory,
-  );
-}
-
-Future<Null> _verifyNoBadImportsInFlutter(String workingDirectory) async {
-  final List<String> errors = <String>[];
-  final String libPath = path.join(workingDirectory, 'packages', 'flutter', 'lib');
-  final String srcPath = path.join(workingDirectory, 'packages', 'flutter', 'lib', 'src');
-  // Verify there's one libPath/*.dart for each srcPath/*/.
-  final List<String> packages = new Directory(libPath).listSync()
-    .where((FileSystemEntity entity) => entity is File && path.extension(entity.path) == '.dart')
-    .map<String>((FileSystemEntity entity) => path.basenameWithoutExtension(entity.path))
-    .toList()..sort();
-  final List<String> directories = new Directory(srcPath).listSync()
-    .where((FileSystemEntity entity) => entity is Directory)
-    .map<String>((FileSystemEntity entity) => path.basename(entity.path))
-    .toList()..sort();
-  if (!_matches(packages, directories)) {
-    errors.add(
-      'flutter/lib/*.dart does not match flutter/lib/src/*/:\n'
-      'These are the exported packages:\n' +
-      packages.map((String path) => '  lib/$path.dart').join('\n') +
-      'These are the directories:\n' +
-      directories.map((String path) => '  lib/src/$path/').join('\n')
-    );
-  }
-  // Verify that the imports are well-ordered.
-  final Map<String, Set<String>> dependencyMap = <String, Set<String>>{};
-  for (String directory in directories) {
-    dependencyMap[directory] = _findDependencies(path.join(srcPath, directory), errors, checkForMeta: directory != 'foundation');
-  }
-  for (String package in dependencyMap.keys) {
-    if (dependencyMap[package].contains(package)) {
-      errors.add(
-        'One of the files in the $yellow$package$reset package imports that package recursively.'
+  if (Platform.isWindows) {
+    if (Directory(path.join(examplePath, 'windows')).existsSync()) {
+      await _flutterBuildWin32(
+        examplePath,
+        release: false,
+        additionalArgs: additionalArgs,
+        verifyCaching: verifyCaching,
+      );
+      await _flutterBuildWin32(
+        examplePath,
+        release: true,
+        additionalArgs: additionalArgs,
+        verifyCaching: verifyCaching,
+      );
+    } else {
+      print(
+        'Example project ${path.basename(examplePath)} has no windows directory, skipping Win32',
       );
     }
   }
-  for (String package in dependencyMap.keys) {
-    final List<String> loop = _deepSearch(dependencyMap, package);
-    if (loop != null) {
-      errors.add(
-        '${yellow}Dependency loop:$reset ' +
-        loop.join(' depends on ')
-      );
-    }
-  }
-  // Fail if any errors
-  if (errors.isNotEmpty) {
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset');
-    if (errors.length == 1) {
-      print('${bold}An error was detected when looking at import dependencies within the Flutter package:$reset\n');
-    } else {
-      print('${bold}Multiple errors were detected when looking at import dependencies within the Flutter package:$reset\n');
-    }
-    print(errors.join('\n\n'));
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset\n');
-    exit(1);
-  }
 }
 
-bool _matches<T>(List<T> a, List<T> b) {
-  assert(a != null);
-  assert(b != null);
-  if (a.length != b.length)
-    return false;
-  for (int index = 0; index < a.length; index += 1) {
-    if (a[index] != b[index])
-      return false;
-  }
-  return true;
+Future<void> _flutterBuildApk(
+  String relativePathToApplication, {
+  required bool release,
+  bool verifyCaching = false,
+  List<String> additionalArgs = const <String>[],
+}) async {
+  printProgress(
+    '${green}Testing APK ${release ? 'release' : 'debug'} build$reset for $cyan$relativePathToApplication$reset...',
+  );
+  await _flutterBuild(
+    relativePathToApplication,
+    'APK',
+    'apk',
+    release: release,
+    verifyCaching: verifyCaching,
+    additionalArgs: additionalArgs,
+  );
 }
 
-final RegExp _importPattern = new RegExp(r"import 'package:flutter/([^.]+)\.dart'");
-final RegExp _importMetaPattern = new RegExp(r"import 'package:meta/meta.dart'");
-
-Set<String> _findDependencies(String srcPath, List<String> errors, { bool checkForMeta = false }) {
-  return new Directory(srcPath).listSync(recursive: true).where((FileSystemEntity entity) {
-    return entity is File && path.extension(entity.path) == '.dart';
-  }).map<Set<String>>((FileSystemEntity entity) {
-    final Set<String> result = new Set<String>();
-    final File file = entity;
-    for (String line in file.readAsLinesSync()) {
-      Match match = _importPattern.firstMatch(line);
-      if (match != null)
-        result.add(match.group(1));
-      if (checkForMeta) {
-        match = _importMetaPattern.firstMatch(line);
-        if (match != null) {
-          errors.add(
-            '${file.path}\nThis package imports the ${yellow}meta$reset package.\n'
-            'You should instead import the "foundation.dart" library.'
-          );
-        }
-      }
-    }
-    return result;
-  }).reduce((Set<String> value, Set<String> element) {
-    value ??= new Set<String>();
-    value.addAll(element);
-    return value;
-  });
+Future<void> _flutterBuildIpa(
+  String relativePathToApplication, {
+  required bool release,
+  List<String> additionalArgs = const <String>[],
+  bool verifyCaching = false,
+}) async {
+  assert(Platform.isMacOS);
+  printProgress(
+    '${green}Testing IPA ${release ? 'release' : 'debug'} build$reset for $cyan$relativePathToApplication$reset...',
+  );
+  await _flutterBuild(
+    relativePathToApplication,
+    'IPA',
+    'ios',
+    release: release,
+    verifyCaching: verifyCaching,
+    additionalArgs: <String>[...additionalArgs, '--no-codesign'],
+  );
 }
 
-List<T> _deepSearch<T>(Map<T, Set<T>> map, T start, [ Set<T> seen ]) {
-  for (T key in map[start]) {
-    if (key == start)
-      continue; // we catch these separately
-    if (seen != null && seen.contains(key))
-      return <T>[start, key];
-    final List<T> result = _deepSearch(
-      map,
-      key,
-      (seen == null ? new Set<T>.from(<T>[start]) : new Set<T>.from(seen))..add(key),
+Future<void> _flutterBuildLinux(
+  String relativePathToApplication, {
+  required bool release,
+  bool verifyCaching = false,
+  List<String> additionalArgs = const <String>[],
+}) async {
+  assert(Platform.isLinux);
+  await runCommand(flutter, <String>['config', '--enable-linux-desktop']);
+  printProgress(
+    '${green}Testing Linux ${release ? 'release' : 'debug'} build$reset for $cyan$relativePathToApplication$reset...',
+  );
+  await _flutterBuild(
+    relativePathToApplication,
+    'Linux',
+    'linux',
+    release: release,
+    verifyCaching: verifyCaching,
+    additionalArgs: additionalArgs,
+  );
+}
+
+Future<void> _flutterBuildMacOS(
+  String relativePathToApplication, {
+  required bool release,
+  bool verifyCaching = false,
+  List<String> additionalArgs = const <String>[],
+}) async {
+  assert(Platform.isMacOS);
+  await runCommand(flutter, <String>['config', '--enable-macos-desktop']);
+  printProgress(
+    '${green}Testing macOS ${release ? 'release' : 'debug'} build$reset for $cyan$relativePathToApplication$reset...',
+  );
+  await _flutterBuild(
+    relativePathToApplication,
+    'macOS',
+    'macos',
+    release: release,
+    verifyCaching: verifyCaching,
+    additionalArgs: additionalArgs,
+  );
+}
+
+Future<void> _flutterBuildWin32(
+  String relativePathToApplication, {
+  required bool release,
+  bool verifyCaching = false,
+  List<String> additionalArgs = const <String>[],
+}) async {
+  assert(Platform.isWindows);
+  printProgress(
+    '${green}Testing ${release ? 'release' : 'debug'} Windows build$reset for $cyan$relativePathToApplication$reset...',
+  );
+  await _flutterBuild(
+    relativePathToApplication,
+    'Windows',
+    'windows',
+    release: release,
+    verifyCaching: verifyCaching,
+    additionalArgs: additionalArgs,
+  );
+}
+
+Future<void> _flutterBuild(
+  String relativePathToApplication,
+  String platformLabel,
+  String platformBuildName, {
+  required bool release,
+  bool verifyCaching = false,
+  List<String> additionalArgs = const <String>[],
+}) async {
+  await runCommand(flutter, <String>[
+    'build',
+    platformBuildName,
+    ...additionalArgs,
+    if (release) '--release' else '--debug',
+    '-v',
+  ], workingDirectory: path.join(flutterRoot, relativePathToApplication));
+
+  if (verifyCaching) {
+    printProgress(
+      '${green}Testing $platformLabel cache$reset for $cyan$relativePathToApplication$reset...',
     );
-    if (result != null) {
-      result.insert(0, start);
-      // Only report the shortest chains.
-      // For example a->b->a, rather than c->a->b->a.
-      // Since we visit every node, we know the shortest chains are those
-      // that start and end on the loop.
-      if (result.first == result.last)
-        return result;
+    await runCommand(flutter, <String>[
+      'build',
+      platformBuildName,
+      '--performance-measurement-file=perf.json',
+      ...additionalArgs,
+      if (release) '--release' else '--debug',
+      '-v',
+    ], workingDirectory: path.join(flutterRoot, relativePathToApplication));
+    final File file = File(path.join(flutterRoot, relativePathToApplication, 'perf.json'));
+    if (!_allTargetsCached(file)) {
+      foundError(<String>[
+        '${red}Not all build targets cached after second run.$reset',
+        'The target performance data was: ${file.readAsStringSync().replaceAll('},', '},\n')}',
+      ]);
     }
-  }
-  return null;
-}
-
-Future<Null> _verifyNoBadImportsInFlutterTools(String workingDirectory) async {
-  final List<String> errors = <String>[];
-  for (FileSystemEntity entity in new Directory(path.join(workingDirectory, 'packages', 'flutter_tools', 'lib'))
-    .listSync(recursive: true)
-    .where((FileSystemEntity entity) => entity is File && path.extension(entity.path) == '.dart')) {
-    final File file = entity;
-    if (file.readAsStringSync().contains('package:flutter_tools/')) {
-      errors.add('$yellow${file.path}$reset imports flutter_tools.');
-    }
-  }
-  // Fail if any errors
-  if (errors.isNotEmpty) {
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset');
-    if (errors.length == 1) {
-      print('${bold}An error was detected when looking at import dependencies within the flutter_tools package:$reset\n');
-    } else {
-      print('${bold}Multiple errors were detected when looking at import dependencies within the flutter_tools package:$reset\n');
-    }
-    print(errors.join('\n\n'));
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset\n');
-    exit(1);
   }
 }
 
-void _printProgress(String action, String workingDir, String command) {
-  print('$arrow $action: cd $cyan$workingDir$reset; $yellow$command$reset');
+bool _allTargetsCached(File performanceFile) {
+  if (dryRun) {
+    return true;
+  }
+  final Map<String, Object?> data =
+      json.decode(performanceFile.readAsStringSync()) as Map<String, Object?>;
+  final List<Map<String, Object?>> targets =
+      (data['targets']! as List<Object?>).cast<Map<String, Object?>>();
+  return targets.every((Map<String, Object?> element) => element['skipped'] == true);
 }
 
-Future<Null> _verifyGeneratedPluginRegistrants(String flutterRoot) async {
-  final Directory flutterRootDir = new Directory(flutterRoot);
-
-  final Map<String, List<File>> packageToRegistrants = <String, List<File>>{};
-
-  for (FileSystemEntity entity in flutterRootDir.listSync(recursive: true)) {
-    if (entity is! File)
-      continue;
-    if (_isGeneratedPluginRegistrant(entity)) {
-      final String package = _getPackageFor(entity, flutterRootDir);
-      final List<File> registrants = packageToRegistrants.putIfAbsent(package, () => <File>[]);
-      registrants.add(entity);
-    }
-  }
-
-  final Set<String> outOfDate = new Set<String>();
-
-  for (String package in packageToRegistrants.keys) {
-    final Map<File, String> fileToContent = <File, String>{};
-    for (File f in packageToRegistrants[package]) {
-      fileToContent[f] = f.readAsStringSync();
-    }
-    await _runCommand(flutter, <String>['inject-plugins'],
-      workingDirectory: package,
-      printOutput: false,
-    );
-    for (File registrant in fileToContent.keys) {
-      if (registrant.readAsStringSync() != fileToContent[registrant]) {
-        outOfDate.add(registrant.path);
-      }
-    }
-  }
-
-  if (outOfDate.isNotEmpty) {
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset');
-    print('${bold}The following GeneratedPluginRegistrants are out of date:$reset');
-    for (String registrant in outOfDate) {
-      print(' - $registrant');
-    }
-    print('\nRun "flutter inject-plugins" in the package that\'s out of date.');
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset');
-    exit(1);
-  }
-}
-
-String _getPackageFor(File entity, Directory flutterRootDir) {
-  for (Directory dir = entity.parent; dir != flutterRootDir; dir = dir.parent) {
-    if (new File(path.join(dir.path, 'pubspec.yaml')).existsSync()) {
-      return dir.path;
-    }
-  }
-  throw new ArgumentError('$entity is not within a dart package.');
-}
-
-bool _isGeneratedPluginRegistrant(File file) {
-  final String filename = path.basename(file.path);
-  return !file.path.contains('.pub-cache')
-      && (filename == 'GeneratedPluginRegistrant.java' ||
-          filename == 'GeneratedPluginRegistrant.h' ||
-          filename == 'GeneratedPluginRegistrant.m');
-}
-
-Future<Null> _verifyVersion(String filename) async {
-  if (!new File(filename).existsSync()) {
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset');
-    print('The version logic failed to create the Flutter version file.');
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset');
-    exit(1);
-  }
-  final String version = await new File(filename).readAsString();
-  if (version == '0.0.0-unknown') {
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset');
-    print('The version logic failed to determine the Flutter version.');
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset');
-    exit(1);
-  }
-  final RegExp pattern = new RegExp(r'^[0-9]+\.[0-9]+\.[0-9]+(-pre\.[0-9]+)?$');
-  if (!version.contains(pattern)) {
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset');
-    print('The version logic generated an invalid version string.');
-    print('$red━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$reset');
-    exit(1);
-  }
+Future<void> _flutterBuildDart2js(
+  String relativePathToApplication,
+  String target, {
+  bool expectNonZeroExit = false,
+}) async {
+  printProgress('${green}Testing Dart2JS build$reset for $cyan$relativePathToApplication$reset...');
+  await runCommand(
+    flutter,
+    <String>['build', 'web', '-v', '--target=$target'],
+    workingDirectory: path.join(flutterRoot, relativePathToApplication),
+    expectNonZeroExit: expectNonZeroExit,
+    environment: <String, String>{'FLUTTER_WEB': 'true'},
+  );
 }

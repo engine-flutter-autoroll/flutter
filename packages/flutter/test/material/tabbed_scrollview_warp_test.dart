@@ -1,9 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 // This is a regression test for https://github.com/flutter/flutter/issues/10549
 // which was failing because _SliverPersistentHeaderElement.visitChildren()
@@ -17,25 +17,28 @@ class MySliverPersistentHeaderDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => 150.0;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => const Placeholder(color: Colors.teal);
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) =>
+      const Placeholder(color: Colors.teal);
 
   @override
   bool shouldRebuild(covariant SliverPersistentHeaderDelegate oldDelegate) => false;
 }
 
 class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key});
+
   @override
-  _MyHomePageState createState() => new _MyHomePageState();
+  State<MyHomePage> createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   static const int tabCount = 3;
-  TabController tabController;
+  late TabController tabController;
 
   @override
   void initState() {
     super.initState();
-    tabController = new TabController(initialIndex: 0, length: tabCount, vsync: this);
+    tabController = TabController(length: tabCount, vsync: this);
   }
 
   @override
@@ -46,26 +49,25 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return new Scaffold(
-      appBar: new AppBar(
-        bottom: new TabBar(
+    return Scaffold(
+      appBar: AppBar(
+        bottom: TabBar(
           controller: tabController,
-          tabs: new List<Widget>.generate(tabCount, (int index) => new Tab(text: 'Tab $index')).toList(),
+          tabs: List<Widget>.generate(tabCount, (int index) => Tab(text: 'Tab $index')).toList(),
         ),
       ),
-      body: new TabBarView(
+      body: TabBarView(
         controller: tabController,
-        children: new List<Widget>.generate(tabCount, (int index) {
-          return new CustomScrollView(
-            // The bug only occurs when this key is included
-            key: new ValueKey<String>('Page $index'),
-            slivers: <Widget>[
-              new SliverPersistentHeader(
-                delegate: new MySliverPersistentHeaderDelegate(),
-              ),
-            ],
-          );
-        }).toList(),
+        children:
+            List<Widget>.generate(tabCount, (int index) {
+              return CustomScrollView(
+                // The bug only occurs when this key is included
+                key: ValueKey<String>('Page $index'),
+                slivers: <Widget>[
+                  SliverPersistentHeader(delegate: MySliverPersistentHeaderDelegate()),
+                ],
+              );
+            }).toList(),
       ),
     );
   }
@@ -73,7 +75,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
 void main() {
   testWidgets('Tabbed CustomScrollViews, warp from tab 1 to 3', (WidgetTester tester) async {
-    await tester.pumpWidget(new MaterialApp(home: new MyHomePage()));
+    await tester.pumpWidget(const MaterialApp(home: MyHomePage()));
 
     // should not crash.
     await tester.tap(find.text('Tab 2'));

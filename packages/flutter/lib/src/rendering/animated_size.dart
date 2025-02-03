@@ -1,12 +1,12 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/scheduler.dart';
 
 import 'box.dart';
+import 'layer.dart';
 import 'object.dart';
 import 'shifted_box.dart';
 
@@ -74,35 +74,69 @@ class RenderAnimatedSize extends RenderAligningShiftedBox {
   /// The arguments [duration], [curve], [alignment], and [vsync] must
   /// not be null.
   RenderAnimatedSize({
-    @required TickerProvider vsync,
-    @required Duration duration,
+    required TickerProvider vsync,
+    required Duration duration,
+    Duration? reverseDuration,
     Curve curve = Curves.linear,
-    AlignmentGeometry alignment = Alignment.center,
-    TextDirection textDirection,
-    RenderBox child,
-  }) : assert(vsync != null),
-       assert(duration != null),
-       assert(curve != null),
-       _vsync = vsync,
-       super(child: child, alignment: alignment, textDirection: textDirection) {
-    _controller = new AnimationController(
+    super.alignment,
+    super.textDirection,
+    super.child,
+    Clip clipBehavior = Clip.hardEdge,
+    VoidCallback? onEnd,
+  }) : _vsync = vsync,
+       _clipBehavior = clipBehavior {
+    _controller = AnimationController(
       vsync: vsync,
       duration: duration,
+      reverseDuration: reverseDuration,
     )..addListener(() {
-      if (_controller.value != _lastValue)
+      if (_controller.value != _lastValue) {
         markNeedsLayout();
+      }
     });
-    _animation = new CurvedAnimation(
-      parent: _controller,
-      curve: curve
-    );
+    _animation = CurvedAnimation(parent: _controller, curve: curve);
+    _onEnd = onEnd;
   }
 
-  AnimationController _controller;
-  CurvedAnimation _animation;
-  final SizeTween _sizeTween = new SizeTween();
-  bool _hasVisualOverflow;
-  double _lastValue;
+  /// When asserts are enabled, returns the animation controller that is used
+  /// to drive the resizing.
+  ///
+  /// Otherwise, returns null.
+  ///
+  /// This getter is intended for use in framework unit tests. Applications must
+  /// not depend on its value.
+  @visibleForTesting
+  AnimationController? get debugController {
+    AnimationController? controller;
+    assert(() {
+      controller = _controller;
+      return true;
+    }());
+    return controller;
+  }
+
+  /// When asserts are enabled, returns the animation that drives the resizing.
+  ///
+  /// Otherwise, returns null.
+  ///
+  /// This getter is intended for use in framework unit tests. Applications must
+  /// not depend on its value.
+  @visibleForTesting
+  CurvedAnimation? get debugAnimation {
+    CurvedAnimation? animation;
+    assert(() {
+      animation = _animation;
+      return true;
+    }());
+    return animation;
+  }
+
+  late final AnimationController _controller;
+  late final CurvedAnimation _animation;
+
+  final SizeTween _sizeTween = SizeTween();
+  late bool _hasVisualOverflow;
+  double? _lastValue;
 
   /// The state this size animation is in.
   ///
@@ -112,21 +146,43 @@ class RenderAnimatedSize extends RenderAligningShiftedBox {
   RenderAnimatedSizeState _state = RenderAnimatedSizeState.start;
 
   /// The duration of the animation.
-  Duration get duration => _controller.duration;
+  Duration get duration => _controller.duration!;
   set duration(Duration value) {
-    assert(value != null);
-    if (value == _controller.duration)
+    if (value == _controller.duration) {
       return;
+    }
     _controller.duration = value;
+  }
+
+  /// The duration of the animation when running in reverse.
+  Duration? get reverseDuration => _controller.reverseDuration;
+  set reverseDuration(Duration? value) {
+    if (value == _controller.reverseDuration) {
+      return;
+    }
+    _controller.reverseDuration = value;
   }
 
   /// The curve of the animation.
   Curve get curve => _animation.curve;
   set curve(Curve value) {
-    assert(value != null);
-    if (value == _animation.curve)
+    if (value == _animation.curve) {
       return;
+    }
     _animation.curve = value;
+  }
+
+  /// {@macro flutter.material.Material.clipBehavior}
+  ///
+  /// Defaults to [Clip.hardEdge].
+  Clip get clipBehavior => _clipBehavior;
+  Clip _clipBehavior = Clip.hardEdge;
+  set clipBehavior(Clip value) {
+    if (value != _clipBehavior) {
+      _clipBehavior = value;
+      markNeedsPaint();
+      markNeedsSemanticsUpdate();
+    }
   }
 
   /// Whether the size is being currently animated towards the child's size.
@@ -139,20 +195,50 @@ class RenderAnimatedSize extends RenderAligningShiftedBox {
   TickerProvider get vsync => _vsync;
   TickerProvider _vsync;
   set vsync(TickerProvider value) {
-    assert(value != null);
-    if (value == _vsync)
+    if (value == _vsync) {
       return;
+    }
     _vsync = value;
     _controller.resync(vsync);
+  }
+
+  /// Called every time an animation completes.
+  ///
+  /// This can be useful to trigger additional actions (e.g. another animation)
+  /// at the end of the current animation.
+  VoidCallback? get onEnd => _onEnd;
+  VoidCallback? _onEnd;
+  set onEnd(VoidCallback? value) {
+    if (value == _onEnd) {
+      return;
+    }
+    _onEnd = value;
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    switch (state) {
+      case RenderAnimatedSizeState.start:
+      case RenderAnimatedSizeState.stable:
+        break;
+      case RenderAnimatedSizeState.changed:
+      case RenderAnimatedSizeState.unstable:
+        // Call markNeedsLayout in case the RenderObject isn't marked dirty
+        // already, to resume interrupted resizing animation.
+        markNeedsLayout();
+    }
+    _controller.addStatusListener(_animationStatusListener);
   }
 
   @override
   void detach() {
     _controller.stop();
+    _controller.removeStatusListener(_animationStatusListener);
     super.detach();
   }
 
-  Size get _animatedSize {
+  Size? get _animatedSize {
     return _sizeTween.evaluate(_animation);
   }
 
@@ -160,7 +246,7 @@ class RenderAnimatedSize extends RenderAligningShiftedBox {
   void performLayout() {
     _lastValue = _controller.value;
     _hasVisualOverflow = false;
-
+    final BoxConstraints constraints = this.constraints;
     if (child == null || constraints.isTight) {
       _controller.stop();
       size = _sizeTween.begin = _sizeTween.end = constraints.smallest;
@@ -169,30 +255,55 @@ class RenderAnimatedSize extends RenderAligningShiftedBox {
       return;
     }
 
-    child.layout(constraints, parentUsesSize: true);
+    child!.layout(constraints, parentUsesSize: true);
 
-    assert(_state != null);
     switch (_state) {
       case RenderAnimatedSizeState.start:
         _layoutStart();
-        break;
       case RenderAnimatedSizeState.stable:
         _layoutStable();
-        break;
       case RenderAnimatedSizeState.changed:
         _layoutChanged();
-        break;
       case RenderAnimatedSizeState.unstable:
         _layoutUnstable();
-        break;
     }
 
-    size = constraints.constrain(_animatedSize);
+    size = constraints.constrain(_animatedSize!);
     alignChild();
 
-    if (size.width < _sizeTween.end.width ||
-        size.height < _sizeTween.end.height)
+    if (size.width < _sizeTween.end!.width || size.height < _sizeTween.end!.height) {
       _hasVisualOverflow = true;
+    }
+  }
+
+  @override
+  @protected
+  Size computeDryLayout(covariant BoxConstraints constraints) {
+    if (child == null || constraints.isTight) {
+      return constraints.smallest;
+    }
+
+    // This simplified version of performLayout only calculates the current
+    // size without modifying global state. See performLayout for comments
+    // explaining the rational behind the implementation.
+    final Size childSize = child!.getDryLayout(constraints);
+    switch (_state) {
+      case RenderAnimatedSizeState.start:
+        return constraints.constrain(childSize);
+      case RenderAnimatedSizeState.stable:
+        if (_sizeTween.end != childSize) {
+          return constraints.constrain(size);
+        } else if (_controller.value == _controller.upperBound) {
+          return constraints.constrain(childSize);
+        }
+      case RenderAnimatedSizeState.unstable:
+      case RenderAnimatedSizeState.changed:
+        if (_sizeTween.end != childSize) {
+          return constraints.constrain(childSize);
+        }
+    }
+
+    return constraints.constrain(_animatedSize!);
   }
 
   void _restartAnimation() {
@@ -205,7 +316,7 @@ class RenderAnimatedSize extends RenderAligningShiftedBox {
   /// We have the initial size to animate from, but we do not have the target
   /// size to animate to, so we set both ends to child's size.
   void _layoutStart() {
-    _sizeTween.begin = _sizeTween.end = debugAdoptSize(child.size);
+    _sizeTween.begin = _sizeTween.end = debugAdoptSize(child!.size);
     _state = RenderAnimatedSizeState.stable;
   }
 
@@ -215,14 +326,14 @@ class RenderAnimatedSize extends RenderAligningShiftedBox {
   /// If during animation the size of the child changes we restart the
   /// animation.
   void _layoutStable() {
-    if (_sizeTween.end != child.size) {
+    if (_sizeTween.end != child!.size) {
       _sizeTween.begin = size;
-      _sizeTween.end = debugAdoptSize(child.size);
+      _sizeTween.end = debugAdoptSize(child!.size);
       _restartAnimation();
       _state = RenderAnimatedSizeState.changed;
     } else if (_controller.value == _controller.upperBound) {
       // Animation finished. Reset target sizes.
-      _sizeTween.begin = _sizeTween.end = debugAdoptSize(child.size);
+      _sizeTween.begin = _sizeTween.end = debugAdoptSize(child!.size);
     } else if (!_controller.isAnimating) {
       _controller.forward(); // resume the animation after being detached
     }
@@ -235,16 +346,18 @@ class RenderAnimatedSize extends RenderAligningShiftedBox {
   /// changes again, we match the child's size, restart animation and go to
   /// unstable state.
   void _layoutChanged() {
-    if (_sizeTween.end != child.size) {
+    if (_sizeTween.end != child!.size) {
       // Child size changed again. Match the child's size and restart animation.
-      _sizeTween.begin = _sizeTween.end = debugAdoptSize(child.size);
+      _sizeTween.begin = _sizeTween.end = debugAdoptSize(child!.size);
       _restartAnimation();
       _state = RenderAnimatedSizeState.unstable;
     } else {
       // Child size stabilized.
       _state = RenderAnimatedSizeState.stable;
-      if (!_controller.isAnimating)
-        _controller.forward(); // resume the animation after being detached
+      if (!_controller.isAnimating) {
+        // Resume the animation after being detached.
+        _controller.forward();
+      }
     }
   }
 
@@ -252,9 +365,9 @@ class RenderAnimatedSize extends RenderAligningShiftedBox {
   ///
   /// Continue tracking the child's size until is stabilizes.
   void _layoutUnstable() {
-    if (_sizeTween.end != child.size) {
+    if (_sizeTween.end != child!.size) {
       // Still unstable. Continue tracking the child.
-      _sizeTween.begin = _sizeTween.end = debugAdoptSize(child.size);
+      _sizeTween.begin = _sizeTween.end = debugAdoptSize(child!.size);
       _restartAnimation();
     } else {
       // Child size stabilized.
@@ -263,13 +376,37 @@ class RenderAnimatedSize extends RenderAligningShiftedBox {
     }
   }
 
+  void _animationStatusListener(AnimationStatus status) {
+    if (status.isCompleted) {
+      _onEnd?.call();
+    }
+  }
+
   @override
   void paint(PaintingContext context, Offset offset) {
-    if (child != null && _hasVisualOverflow) {
+    if (child != null && _hasVisualOverflow && clipBehavior != Clip.none) {
       final Rect rect = Offset.zero & size;
-      context.pushClipRect(needsCompositing, offset, rect, super.paint);
+      _clipRectLayer.layer = context.pushClipRect(
+        needsCompositing,
+        offset,
+        rect,
+        super.paint,
+        clipBehavior: clipBehavior,
+        oldLayer: _clipRectLayer.layer,
+      );
     } else {
+      _clipRectLayer.layer = null;
       super.paint(context, offset);
     }
+  }
+
+  final LayerHandle<ClipRectLayer> _clipRectLayer = LayerHandle<ClipRectLayer>();
+
+  @override
+  void dispose() {
+    _clipRectLayer.layer = null;
+    _controller.dispose();
+    _animation.dispose();
+    super.dispose();
   }
 }

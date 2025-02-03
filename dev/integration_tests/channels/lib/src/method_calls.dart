@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,32 +8,26 @@ import 'basic_messaging.dart';
 import 'test_step.dart';
 
 Future<TestStepResult> methodCallJsonSuccessHandshake(dynamic payload) async {
-  const MethodChannel channel =
-      MethodChannel('json-method', JSONMethodCodec());
-  return _methodCallSuccessHandshake(
-      'JSON success($payload)', channel, payload);
+  const MethodChannel channel = MethodChannel('json-method', JSONMethodCodec());
+  return _methodCallSuccessHandshake('JSON success($payload)', channel, payload);
 }
 
 Future<TestStepResult> methodCallJsonErrorHandshake(dynamic payload) async {
-  const MethodChannel channel =
-      MethodChannel('json-method', JSONMethodCodec());
+  const MethodChannel channel = MethodChannel('json-method', JSONMethodCodec());
   return _methodCallErrorHandshake('JSON error($payload)', channel, payload);
 }
 
 Future<TestStepResult> methodCallJsonNotImplementedHandshake() async {
-  const MethodChannel channel =
-      MethodChannel('json-method', JSONMethodCodec());
+  const MethodChannel channel = MethodChannel('json-method', JSONMethodCodec());
   return _methodCallNotImplementedHandshake('JSON notImplemented()', channel);
 }
 
-Future<TestStepResult> methodCallStandardSuccessHandshake(
-    dynamic payload) async {
+Future<TestStepResult> methodCallStandardSuccessHandshake(dynamic payload) async {
   const MethodChannel channel = MethodChannel(
     'std-method',
     StandardMethodCodec(ExtendedStandardMessageCodec()),
   );
-  return _methodCallSuccessHandshake(
-      'Standard success($payload)', channel, payload);
+  return _methodCallSuccessHandshake('Standard success($payload)', channel, payload);
 }
 
 Future<TestStepResult> methodCallStandardErrorHandshake(dynamic payload) async {
@@ -41,8 +35,7 @@ Future<TestStepResult> methodCallStandardErrorHandshake(dynamic payload) async {
     'std-method',
     StandardMethodCodec(ExtendedStandardMessageCodec()),
   );
-  return _methodCallErrorHandshake(
-      'Standard error($payload)', channel, payload);
+  return _methodCallErrorHandshake('Standard error($payload)', channel, payload);
 }
 
 Future<TestStepResult> methodCallStandardNotImplementedHandshake() async {
@@ -50,8 +43,7 @@ Future<TestStepResult> methodCallStandardNotImplementedHandshake() async {
     'std-method',
     StandardMethodCodec(ExtendedStandardMessageCodec()),
   );
-  return _methodCallNotImplementedHandshake(
-      'Standard notImplemented()', channel);
+  return _methodCallNotImplementedHandshake('Standard notImplemented()', channel);
 }
 
 Future<TestStepResult> _methodCallSuccessHandshake(
@@ -67,7 +59,7 @@ Future<TestStepResult> _methodCallSuccessHandshake(
   dynamic result = nothing;
   dynamic error = nothing;
   try {
-    result = await channel.invokeMethod('success', arguments);
+    result = await channel.invokeMethod<dynamic>('success', arguments);
   } catch (e) {
     error = e;
   }
@@ -89,13 +81,12 @@ Future<TestStepResult> _methodCallErrorHandshake(
   final List<dynamic> received = <dynamic>[];
   channel.setMethodCallHandler((MethodCall call) async {
     received.add(call.arguments);
-    throw new PlatformException(
-        code: 'error', message: null, details: arguments);
+    throw PlatformException(code: 'error', details: arguments);
   });
   dynamic errorDetails = nothing;
   dynamic error = nothing;
   try {
-    error = await channel.invokeMethod('error', arguments);
+    error = await channel.invokeMethod<dynamic>('error', arguments);
   } on PlatformException catch (e) {
     errorDetails = e.details;
   } catch (e) {
@@ -118,12 +109,12 @@ Future<TestStepResult> _methodCallNotImplementedHandshake(
   final List<dynamic> received = <dynamic>[];
   channel.setMethodCallHandler((MethodCall call) async {
     received.add(call.arguments);
-    throw new MissingPluginException();
+    throw MissingPluginException();
   });
   dynamic result = nothing;
   dynamic error = nothing;
   try {
-    error = await channel.invokeMethod('notImplemented');
+    error = await channel.invokeMethod<dynamic>('notImplemented');
   } on MissingPluginException {
     result = null;
   } catch (e) {

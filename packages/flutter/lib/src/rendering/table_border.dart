@@ -1,6 +1,9 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+/// @docImport 'package:flutter/material.dart';
+library;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' hide Border;
@@ -23,6 +26,7 @@ class TableBorder {
     this.left = BorderSide.none,
     this.horizontalInside = BorderSide.none,
     this.verticalInside = BorderSide.none,
+    this.borderRadius = BorderRadius.zero,
   });
 
   /// A uniform border with all sides the same color and width.
@@ -32,26 +36,32 @@ class TableBorder {
     Color color = const Color(0xFF000000),
     double width = 1.0,
     BorderStyle style = BorderStyle.solid,
+    BorderRadius borderRadius = BorderRadius.zero,
   }) {
-    final BorderSide side = new BorderSide(color: color, width: width, style: style);
-    return new TableBorder(top: side, right: side, bottom: side, left: side, horizontalInside: side, verticalInside: side);
+    final BorderSide side = BorderSide(color: color, width: width, style: style);
+    return TableBorder(
+      top: side,
+      right: side,
+      bottom: side,
+      left: side,
+      horizontalInside: side,
+      verticalInside: side,
+      borderRadius: borderRadius,
+    );
   }
 
   /// Creates a border for a table where all the interior sides use the same
   /// styling and all the exterior sides use the same styling.
-  factory TableBorder.symmetric({
+  const TableBorder.symmetric({
     BorderSide inside = BorderSide.none,
     BorderSide outside = BorderSide.none,
-  }) {
-    return new TableBorder(
-      top: outside,
-      right: outside,
-      bottom: outside,
-      left: outside,
-      horizontalInside: inside,
-      verticalInside: inside,
-    );
-  }
+    this.borderRadius = BorderRadius.zero,
+  }) : top = outside,
+       right = outside,
+       bottom = outside,
+       left = outside,
+       horizontalInside = inside,
+       verticalInside = inside;
 
   /// The top side of this border.
   final BorderSide top;
@@ -71,47 +81,48 @@ class TableBorder {
   /// The vertical interior sides of this border.
   final BorderSide verticalInside;
 
+  /// The [BorderRadius] to use when painting the corners of this border.
+  ///
+  /// It is also applied to [DataTable]'s [Material].
+  final BorderRadius borderRadius;
+
   /// The widths of the sides of this border represented as an [EdgeInsets].
   ///
   /// This can be used, for example, with a [Padding] widget to inset a box by
   /// the size of these borders.
   EdgeInsets get dimensions {
-    return new EdgeInsets.fromLTRB(left.width, top.width, right.width, bottom.width);
+    return EdgeInsets.fromLTRB(left.width, top.width, right.width, bottom.width);
   }
 
   /// Whether all the sides of the border (outside and inside) are identical.
   /// Uniform borders are typically more efficient to paint.
   bool get isUniform {
-    assert(top != null);
-    assert(right != null);
-    assert(bottom != null);
-    assert(left != null);
-    assert(horizontalInside != null);
-    assert(verticalInside != null);
-
     final Color topColor = top.color;
     if (right.color != topColor ||
         bottom.color != topColor ||
         left.color != topColor ||
         horizontalInside.color != topColor ||
-        verticalInside.color != topColor)
+        verticalInside.color != topColor) {
       return false;
+    }
 
     final double topWidth = top.width;
     if (right.width != topWidth ||
         bottom.width != topWidth ||
         left.width != topWidth ||
         horizontalInside.width != topWidth ||
-        verticalInside.width != topWidth)
+        verticalInside.width != topWidth) {
       return false;
+    }
 
     final BorderStyle topStyle = top.style;
     if (right.style != topStyle ||
         bottom.style != topStyle ||
         left.style != topStyle ||
         horizontalInside.style != topStyle ||
-        verticalInside.style != topStyle)
+        verticalInside.style != topStyle) {
       return false;
+    }
 
     return true;
   }
@@ -132,7 +143,7 @@ class TableBorder {
   ///
   ///  * [BorderSide.scale], which is used to implement this method.
   TableBorder scale(double t) {
-    return new TableBorder(
+    return TableBorder(
       top: top.scale(t),
       right: right.scale(t),
       bottom: bottom.scale(t),
@@ -147,26 +158,18 @@ class TableBorder {
   /// If a border is null, it is treated as having only [BorderSide.none]
   /// borders.
   ///
-  /// The `t` argument represents position on the timeline, with 0.0 meaning
-  /// that the interpolation has not started, returning `a` (or something
-  /// equivalent to `a`), 1.0 meaning that the interpolation has finished,
-  /// returning `b` (or something equivalent to `b`), and values in between
-  /// meaning that the interpolation is at the relevant point on the timeline
-  /// between `a` and `b`. The interpolation can be extrapolated beyond 0.0 and
-  /// 1.0, so negative values and values greater than 1.0 are valid (and can
-  /// easily be generated by curves such as [Curves.elasticInOut]).
-  ///
-  /// Values for `t` are usually obtained from an [Animation<double>], such as
-  /// an [AnimationController].
-  static TableBorder lerp(TableBorder a, TableBorder b, double t) {
-    assert(t != null);
-    if (a == null && b == null)
-      return null;
-    if (a == null)
-      return b.scale(t);
-    if (b == null)
+  /// {@macro dart.ui.shadow.lerp}
+  static TableBorder? lerp(TableBorder? a, TableBorder? b, double t) {
+    if (identical(a, b)) {
+      return a;
+    }
+    if (a == null) {
+      return b!.scale(t);
+    }
+    if (b == null) {
       return a.scale(1.0 - t);
-    return new TableBorder(
+    }
+    return TableBorder(
       top: BorderSide.lerp(a.top, b.top, t),
       right: BorderSide.lerp(a.right, b.right, t),
       bottom: BorderSide.lerp(a.bottom, b.bottom, t),
@@ -202,29 +205,21 @@ class TableBorder {
   ///
   /// The paint order is particularly notable in the case of
   /// partially-transparent borders.
-  void paint(Canvas canvas, Rect rect, {
-    @required Iterable<double> rows,
-    @required Iterable<double> columns,
+  void paint(
+    Canvas canvas,
+    Rect rect, {
+    required Iterable<double> rows,
+    required Iterable<double> columns,
   }) {
     // properties can't be null
-    assert(top != null);
-    assert(right != null);
-    assert(bottom != null);
-    assert(left != null);
-    assert(horizontalInside != null);
-    assert(verticalInside != null);
 
     // arguments can't be null
-    assert(canvas != null);
-    assert(rect != null);
-    assert(rows != null);
     assert(rows.isEmpty || (rows.first >= 0.0 && rows.last <= rect.height));
-    assert(columns != null);
     assert(columns.isEmpty || (columns.first >= 0.0 && columns.last <= rect.width));
 
     if (columns.isNotEmpty || rows.isNotEmpty) {
-      final Paint paint = new Paint();
-      final Path path = new Path();
+      final Paint paint = Paint();
+      final Path path = Path();
 
       if (columns.isNotEmpty) {
         switch (verticalInside.style) {
@@ -234,12 +229,11 @@ class TableBorder {
               ..strokeWidth = verticalInside.width
               ..style = PaintingStyle.stroke;
             path.reset();
-            for (double x in columns) {
+            for (final double x in columns) {
               path.moveTo(rect.left + x, rect.top);
               path.lineTo(rect.left + x, rect.bottom);
             }
             canvas.drawPath(path, paint);
-            break;
           case BorderStyle.none:
             break;
         }
@@ -253,38 +247,49 @@ class TableBorder {
               ..strokeWidth = horizontalInside.width
               ..style = PaintingStyle.stroke;
             path.reset();
-            for (double y in rows) {
+            for (final double y in rows) {
               path.moveTo(rect.left, rect.top + y);
               path.lineTo(rect.right, rect.top + y);
             }
             canvas.drawPath(path, paint);
-            break;
           case BorderStyle.none:
             break;
         }
       }
     }
-    paintBorder(canvas, rect, top: top, right: right, bottom: bottom, left: left);
+    if (!isUniform || borderRadius == BorderRadius.zero) {
+      paintBorder(canvas, rect, top: top, right: right, bottom: bottom, left: left);
+    } else {
+      final RRect outer = borderRadius.toRRect(rect);
+      final RRect inner = outer.deflate(top.width);
+      final Paint paint = Paint()..color = top.color;
+      canvas.drawDRRect(outer, inner, paint);
+    }
   }
 
   @override
-  bool operator ==(dynamic other) {
-    if (identical(this, other))
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
       return true;
-    if (runtimeType != other.runtimeType)
+    }
+    if (other.runtimeType != runtimeType) {
       return false;
-    final TableBorder typedOther = other;
-    return top == typedOther.top
-        && right == typedOther.right
-        && bottom == typedOther.bottom
-        && left == typedOther.left
-        && horizontalInside == typedOther.horizontalInside
-        && verticalInside == typedOther.verticalInside;
+    }
+    return other is TableBorder &&
+        other.top == top &&
+        other.right == right &&
+        other.bottom == bottom &&
+        other.left == left &&
+        other.horizontalInside == horizontalInside &&
+        other.verticalInside == verticalInside &&
+        other.borderRadius == borderRadius;
   }
 
   @override
-  int get hashCode => hashValues(top, right, bottom, left, horizontalInside, verticalInside);
+  int get hashCode =>
+      Object.hash(top, right, bottom, left, horizontalInside, verticalInside, borderRadius);
 
   @override
-  String toString() => 'TableBorder($top, $right, $bottom, $left, $horizontalInside, $verticalInside)';
+  String toString() =>
+      'TableBorder($top, $right, $bottom, $left, $horizontalInside, $verticalInside, $borderRadius)';
 }

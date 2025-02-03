@@ -1,26 +1,33 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:async';
+import 'package:args/args.dart';
 
 import '../base/common.dart';
-import '../base/platform.dart';
 import '../base/utils.dart';
-import '../doctor.dart';
+import '../doctor_validator.dart';
 import '../emulator.dart';
-import '../globals.dart';
+import '../globals.dart' as globals;
 import '../runner/flutter_command.dart';
 
 class EmulatorsCommand extends FlutterCommand {
   EmulatorsCommand() {
-    argParser.addOption('launch',
-        help: 'The full or partial ID of the emulator to launch.');
-    argParser.addFlag('create',
-        help: 'Creates a new Android emulator based on a Pixel device.',
-        negatable: false);
-    argParser.addOption('name',
-        help: 'Used with flag --create. Specifies a name for the emulator being created.');
+    argParser.addOption('launch', help: 'The full or partial ID of the emulator to launch.');
+    argParser.addFlag(
+      'cold',
+      help: 'Used with the "--launch" flag to cold boot the emulator instance (Android only).',
+      negatable: false,
+    );
+    argParser.addFlag(
+      'create',
+      help: 'Creates a new Android emulator based on a Pixel device.',
+      negatable: false,
+    );
+    argParser.addOption(
+      'name',
+      help: 'Used with the "--create" flag. Specifies a name for the emulator being created.',
+    );
   }
 
   @override
@@ -30,77 +37,70 @@ class EmulatorsCommand extends FlutterCommand {
   final String description = 'List, launch and create emulators.';
 
   @override
+  final String category = FlutterCommandCategory.tools;
+
+  @override
   final List<String> aliases = <String>['emulator'];
 
   @override
-  Future<Null> runCommand() async {
-    if (doctor.workflows.every((Workflow w) => !w.canListEmulators)) {
+  Future<FlutterCommandResult> runCommand() async {
+    if (globals.doctor!.workflows.every((Workflow w) => !w.canListEmulators)) {
       throwToolExit(
-          'Unable to find any emulator sources. Please ensure you have some\n'
-              'Android AVD images ' +
-              (platform.isMacOS ? 'or an iOS Simulator ' : '') +
-              'available.',
-          exitCode: 1);
+        'Unable to find any emulator sources. Please ensure you have some\n'
+        'Android AVD images ${globals.platform.isMacOS ? 'or an iOS Simulator ' : ''}available.',
+        exitCode: 1,
+      );
     }
-
-    if (argResults.wasParsed('launch')) {
-      await _launchEmulator(argResults['launch']);
-    } else if (argResults.wasParsed('create')) {
-      await _createEmulator(name: argResults['name']);
+    final ArgResults argumentResults = argResults!;
+    if (argumentResults.wasParsed('launch')) {
+      final bool coldBoot = argumentResults.wasParsed('cold');
+      await _launchEmulator(stringArg('launch')!, coldBoot: coldBoot);
+    } else if (argumentResults.wasParsed('create')) {
+      await _createEmulator(name: stringArg('name'));
     } else {
-      final String searchText =
-          argResults.rest != null && argResults.rest.isNotEmpty
-              ? argResults.rest.first
-              : null;
+      final String? searchText =
+          argumentResults.rest.isNotEmpty ? argumentResults.rest.first : null;
       await _listEmulators(searchText);
     }
+
+    return FlutterCommandResult.success();
   }
 
-  Future<void> _launchEmulator(String id) async {
-    final List<Emulator> emulators =
-        await emulatorManager.getEmulatorsMatching(id);
+  Future<void> _launchEmulator(String id, {required bool coldBoot}) async {
+    final List<Emulator> emulators = await emulatorManager!.getEmulatorsMatching(id);
 
     if (emulators.isEmpty) {
-      printStatus("No emulator found that matches '$id'.");
+      globals.printStatus("No emulator found that matches '$id'.");
     } else if (emulators.length > 1) {
-      _printEmulatorList(
-        emulators,
-        "More than one emulator matches '$id':",
-      );
+      _printEmulatorList(emulators, "More than one emulator matches '$id':");
     } else {
-      try {
-        await emulators.first.launch();
-      }
-      catch (e) {
-        if (e is String) {
-          printError(e);
-        } else {
-          rethrow;
-        }
-      }
+      await emulators.first.launch(coldBoot: coldBoot);
     }
   }
 
-  Future<Null> _createEmulator({String name}) async {
-    final CreateEmulatorResult createResult =
-        await emulatorManager.createEmulator(name: name);
+  Future<void> _createEmulator({String? name}) async {
+    final CreateEmulatorResult createResult = await emulatorManager!.createEmulator(name: name);
 
     if (createResult.success) {
-      printStatus("Emulator '${createResult.emulatorName}' created successfully.");
+      globals.printStatus("Emulator '${createResult.emulatorName}' created successfully.");
     } else {
-      printStatus("Failed to create emulator '${createResult.emulatorName}'.\n");
-      printStatus(createResult.error.trim());
+      globals.printStatus("Failed to create emulator '${createResult.emulatorName}'.\n");
+      final String? error = createResult.error;
+      if (error != null) {
+        globals.printStatus(error.trim());
+      }
       _printAdditionalInfo();
     }
   }
 
-  Future<void> _listEmulators(String searchText) async {
-    final List<Emulator> emulators = searchText == null
-        ? await emulatorManager.getAllAvailableEmulators()
-        : await emulatorManager.getEmulatorsMatching(searchText);
+  Future<void> _listEmulators(String? searchText) async {
+    final List<Emulator> emulators =
+        searchText == null
+            ? await emulatorManager!.getAllAvailableEmulators()
+            : await emulatorManager!.getEmulatorsMatching(searchText);
 
     if (emulators.isEmpty) {
-      printStatus('No emulators available.');
+      globals.printStatus('No emulators available.');
       _printAdditionalInfo(showCreateInstruction: true);
     } else {
       _printEmulatorList(
@@ -111,30 +111,31 @@ class EmulatorsCommand extends FlutterCommand {
   }
 
   void _printEmulatorList(List<Emulator> emulators, String message) {
-    printStatus('$message\n');
-    Emulator.printEmulators(emulators);
+    globals.printStatus('$message\n');
+    Emulator.printEmulators(emulators, globals.logger);
     _printAdditionalInfo(showCreateInstruction: true, showRunInstruction: true);
   }
 
-  void _printAdditionalInfo({ bool showRunInstruction = false,
-      bool showCreateInstruction = false }) {
-    printStatus('');
+  void _printAdditionalInfo({bool showRunInstruction = false, bool showCreateInstruction = false}) {
+    globals.printStatus('');
     if (showRunInstruction) {
-      printStatus(
-          "To run an emulator, run 'flutter emulators --launch <emulator id>'.");
+      globals.printStatus("To run an emulator, run 'flutter emulators --launch <emulator id>'.");
     }
     if (showCreateInstruction) {
-      printStatus(
-          "To create a new emulator, run 'flutter emulators --create [--name xyz]'.");
+      globals.printStatus(
+        "To create a new emulator, run 'flutter emulators --create [--name xyz]'.",
+      );
     }
 
     if (showRunInstruction || showCreateInstruction) {
-      printStatus('');
+      globals.printStatus('');
     }
-    // TODO(dantup): Update this link to flutter.io if/when we have a better page.
+    // TODO(dantup): Update this link to flutter.dev if/when we have a better page.
     // That page can then link out to these places if required.
-    printStatus('You can find more information on managing emulators at the links below:\n'
-        '  https://developer.android.com/studio/run/managing-avds\n'
-        '  https://developer.android.com/studio/command-line/avdmanager');
+    globals.printStatus(
+      'You can find more information on managing emulators at the links below:\n'
+      '  https://developer.android.com/studio/run/managing-avds\n'
+      '  https://developer.android.com/studio/command-line/avdmanager',
+    );
   }
 }

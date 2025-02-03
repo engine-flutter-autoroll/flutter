@@ -1,11 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'package:flutter/foundation.dart';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 
-int yieldCount;
+int yieldCount = 0;
 
 Iterable<int> range(int start, int end) sync* {
   assert(yieldCount == 0);
@@ -13,7 +13,7 @@ Iterable<int> range(int start, int end) sync* {
     yieldCount += 1;
     yield index;
   }
- }
+}
 
 void main() {
   setUp(() {
@@ -21,7 +21,7 @@ void main() {
   });
 
   test('The Caching Iterable: length caches', () {
-    final Iterable<int> i = new CachingIterable<int>(range(1, 5).iterator);
+    final Iterable<int> i = CachingIterable<int>(range(1, 5).iterator);
     expect(yieldCount, equals(0));
     expect(i.length, equals(5));
     expect(yieldCount, equals(5));
@@ -37,7 +37,7 @@ void main() {
   });
 
   test('The Caching Iterable: laziness', () {
-    final Iterable<int> i = new CachingIterable<int>(range(1, 5).iterator);
+    final Iterable<int> i = CachingIterable<int>(range(1, 5).iterator);
     expect(yieldCount, equals(0));
 
     expect(i.first, equals(1));
@@ -51,10 +51,10 @@ void main() {
   });
 
   test('The Caching Iterable: where and map', () {
-    final Iterable<int> integers = new CachingIterable<int>(range(1, 5).iterator);
+    final Iterable<int> integers = CachingIterable<int>(range(1, 5).iterator);
     expect(yieldCount, equals(0));
 
-    final Iterable<int> evens = integers.where((int i) => i % 2 == 0);
+    final Iterable<int> evens = integers.where((int i) => i.isEven);
     expect(yieldCount, equals(0));
 
     expect(evens.first, equals(2));
@@ -63,7 +63,7 @@ void main() {
     expect(integers.first, equals(1));
     expect(yieldCount, equals(2));
 
-    expect(evens.map((int i) => i + 1), equals(<int>[3, 5]));
+    expect(evens.map<int>((int i) => i + 1), equals(<int>[3, 5]));
     expect(yieldCount, equals(5));
 
     expect(evens, equals(<int>[2, 4]));
@@ -74,7 +74,7 @@ void main() {
   });
 
   test('The Caching Iterable: take and skip', () {
-    final Iterable<int> integers = new CachingIterable<int>(range(1, 5).iterator);
+    final Iterable<int> integers = CachingIterable<int>(range(1, 5).iterator);
     expect(yieldCount, equals(0));
 
     final Iterable<int> secondTwo = integers.skip(1).take(2);
@@ -92,19 +92,34 @@ void main() {
   });
 
   test('The Caching Iterable: expand', () {
-    final Iterable<int> integers = new CachingIterable<int>(range(1, 5).iterator);
+    final Iterable<int> integers = CachingIterable<int>(range(1, 5).iterator);
     expect(yieldCount, equals(0));
 
-    final Iterable<int> expanded1 = integers.expand((int i) => <int>[i, i]);
+    final Iterable<int> expanded1 = integers.expand<int>((int i) => <int>[i, i]);
 
     expect(yieldCount, equals(0));
     expect(expanded1, equals(<int>[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]));
     expect(yieldCount, equals(5));
 
-    final Iterable<int> expanded2 = integers.expand((int i) => <int>[i, i]);
+    final Iterable<int> expanded2 = integers.expand<int>((int i) => <int>[i, i]);
 
     expect(yieldCount, equals(5));
     expect(expanded2, equals(<int>[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]));
     expect(yieldCount, equals(5));
+  });
+
+  test('The Caching Iterable: elementAt correctness', () {
+    final Iterable<int> integers = CachingIterable<int>(range(1, 5).iterator);
+    expect(yieldCount, equals(0));
+
+    expect(() => integers.elementAt(-1), throwsRangeError);
+
+    expect(integers.elementAt(1), equals(2));
+    expect(integers.elementAt(0), equals(1));
+    expect(integers.elementAt(2), equals(3));
+    expect(integers.elementAt(4), equals(5));
+    expect(integers.elementAt(3), equals(4));
+
+    expect(() => integers.elementAt(5), throwsRangeError);
   });
 }

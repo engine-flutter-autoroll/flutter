@@ -1,1469 +1,1085 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'dart:async';
-import 'dart:convert' show base64;
-import 'dart:math' as math;
 
-import 'package:file/file.dart';
-import 'package:json_rpc_2/error_code.dart' as rpc_error_code;
-import 'package:json_rpc_2/json_rpc_2.dart' as rpc;
-import 'package:meta/meta.dart' show required;
-import 'package:stream_channel/stream_channel.dart';
-import 'package:web_socket_channel/io.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
+import 'package:vm_service/vm_service.dart' as vm_service;
 
 import 'base/common.dart';
-import 'base/file_system.dart';
+import 'base/context.dart';
 import 'base/io.dart' as io;
+import 'base/logger.dart';
 import 'base/utils.dart';
-import 'globals.dart';
-import 'vmservice_record_replay.dart';
+import 'cache.dart';
+import 'convert.dart';
+import 'device.dart';
+import 'globals.dart' as globals;
+import 'project.dart';
+import 'version.dart';
 
-/// A function that opens a two-way communication channel to the specified [uri].
-typedef Future<StreamChannel<String>> _OpenChannel(Uri uri);
+const String kResultType = 'type';
+const String kResultTypeSuccess = 'Success';
+const String kError = 'error';
 
-_OpenChannel _openChannel = _defaultOpenChannel;
+const String kGetSkSLsMethod = '_flutter.getSkSLs';
+const String kSetAssetBundlePathMethod = '_flutter.setAssetBundlePath';
+const String kFlushUIThreadTasksMethod = '_flutter.flushUIThreadTasks';
+const String kRunInViewMethod = '_flutter.runInView';
+const String kListViewsMethod = '_flutter.listViews';
+const String kScreenshotSkpMethod = '_flutter.screenshotSkp';
+const String kReloadAssetFonts = '_flutter.reloadAssetFonts';
+
+const String kFlutterToolAlias = 'Flutter Tools';
+
+const String kReloadSourcesServiceName = 'reloadSources';
+const String kHotRestartServiceName = 'hotRestart';
+const String kFlutterVersionServiceName = 'flutterVersion';
+const String kCompileExpressionServiceName = 'compileExpression';
+const String kFlutterMemoryInfoServiceName = 'flutterMemoryInfo';
+const String kFlutterGetSkSLServiceName = 'flutterGetSkSL';
+
+/// The error response code from an unrecoverable compilation failure.
+const int kIsolateReloadBarred = 1005;
+
+/// Override `WebSocketConnector` in [context] to use a different constructor
+/// for [WebSocket]s (used by tests).
+typedef WebSocketConnector =
+    Future<io.WebSocket> Function(
+      String url, {
+      io.CompressionOptions compression,
+      required Logger logger,
+    });
+
+typedef PrintStructuredErrorLogMethod = void Function(vm_service.Event);
+
+WebSocketConnector _openChannel = _defaultOpenChannel;
+
+/// A testing only override of the WebSocket connector.
+///
+/// Provide a `null` value to restore the original connector.
+@visibleForTesting
+set openChannelForTesting(WebSocketConnector? connector) {
+  _openChannel = connector ?? _defaultOpenChannel;
+}
 
 /// A function that reacts to the invocation of the 'reloadSources' service.
 ///
 /// The VM Service Protocol allows clients to register custom services that
 /// can be invoked by other clients through the service protocol itself.
 ///
-/// Clients like Observatory use external 'reloadSources' services,
+/// Clients like VmService use external 'reloadSources' services,
 /// when available, instead of the VM internal one. This allows these clients to
 /// invoke Flutter HotReload when connected to a Flutter Application started in
 /// hot mode.
 ///
 /// See: https://github.com/dart-lang/sdk/issues/30023
-typedef Future<Null> ReloadSources(
-  String isolateId, {
-  bool force,
-  bool pause,
-});
+typedef ReloadSources = Future<void> Function(String isolateId, {bool force, bool pause});
 
-typedef Future<String> CompileExpression(
-  String isolateId,
-  String expression,
-  List<String> definitions,
-  List<String> typeDefinitions,
-  String libraryUri,
-  String klass,
-  bool isStatic,
-);
+typedef Restart = Future<void> Function({bool pause});
 
-const String _kRecordingType = 'vmservice';
+typedef CompileExpression =
+    Future<String> Function(
+      String isolateId,
+      String expression,
+      List<String> definitions,
+      List<String> definitionTypes,
+      List<String> typeDefinitions,
+      List<String> typeBounds,
+      List<String> typeDefaults,
+      String libraryUri,
+      String? klass,
+      String? method,
+      bool isStatic,
+    );
 
-Future<StreamChannel<String>> _defaultOpenChannel(Uri uri) async {
-  const int _kMaxAttempts = 5;
+/// A method that pulls an SkSL shader from the device and writes it to a file.
+///
+/// The name of the file returned as a result.
+typedef GetSkSLMethod = Future<String?> Function();
+
+Future<io.WebSocket> _defaultOpenChannel(
+  String url, {
+  io.CompressionOptions compression = io.CompressionOptions.compressionDefault,
+  required Logger logger,
+}) async {
   Duration delay = const Duration(milliseconds: 100);
   int attempts = 0;
-  io.WebSocket socket;
+  io.WebSocket? socket;
 
-  Future<void> onError(dynamic e) async {
-    printTrace('Exception attempting to connect to observatory: $e');
-    printTrace('This was attempt #$attempts. Will retry in $delay.');
+  Future<void> handleError(Object? e) async {
+    void Function(String) printVisibleTrace = logger.printTrace;
+    if (attempts == 10) {
+      logger.printStatus('Connecting to the VM Service is taking longer than expected...');
+    } else if (attempts == 20) {
+      logger.printStatus('Still attempting to connect to the VM Service...');
+      logger.printStatus(
+        'If you do NOT see the Flutter application running, it might have '
+        'crashed. The device logs (e.g. from adb or XCode) might have more '
+        'details.',
+      );
+      logger.printStatus(
+        'If you do see the Flutter application running on the device, try '
+        're-running with --host-vmservice-port to use a specific port known to '
+        'be available.',
+      );
+    } else if (attempts % 50 == 0) {
+      printVisibleTrace = logger.printStatus;
+    }
+
+    printVisibleTrace('Exception attempting to connect to the VM Service: $e');
+    printVisibleTrace('This was attempt #$attempts. Will retry in $delay.');
 
     // Delay next attempt.
-    await new Future<Null>.delayed(delay);
+    await Future<void>.delayed(delay);
 
-    // Back off exponentially.
-    delay *= 2;
+    // Back off exponentially, up to 1600ms per attempt.
+    if (delay < const Duration(seconds: 1)) {
+      delay *= 2;
+    }
   }
 
-  while (attempts < _kMaxAttempts && socket == null) {
+  final WebSocketConnector constructor =
+      context.get<WebSocketConnector>() ??
+      (
+        String url, {
+        io.CompressionOptions compression = io.CompressionOptions.compressionDefault,
+        Logger? logger,
+      }) => io.WebSocket.connect(url, compression: compression);
+
+  while (socket == null) {
     attempts += 1;
     try {
-      socket = await io.WebSocket.connect(uri.toString());
+      socket = await constructor(url, compression: compression, logger: logger);
     } on io.WebSocketException catch (e) {
-      await onError(e);
+      await handleError(e);
     } on io.SocketException catch (e) {
-      await onError(e);
+      await handleError(e);
     }
   }
+  return socket;
+}
 
-  if (socket == null) {
-    throw new ToolExit(
-      'Attempted to connect to Dart observatory $_kMaxAttempts times, and '
-      'all attempts failed. Giving up. The URL was $uri'
+/// Override `VMServiceConnector` in [context] to return a different VMService
+/// from [VMService.connect] (used by tests).
+typedef VMServiceConnector =
+    Future<FlutterVmService> Function(
+      Uri httpUri, {
+      ReloadSources? reloadSources,
+      Restart? restart,
+      CompileExpression? compileExpression,
+      GetSkSLMethod? getSkSLMethod,
+      FlutterProject? flutterProject,
+      PrintStructuredErrorLogMethod? printStructuredErrorLogMethod,
+      io.CompressionOptions compression,
+      Device? device,
+      required Logger logger,
+    });
+
+/// Set up the VM Service client by attaching services for each of the provided
+/// callbacks.
+///
+/// All parameters besides [vmService] may be null.
+Future<vm_service.VmService> setUpVmService({
+  ReloadSources? reloadSources,
+  Restart? restart,
+  CompileExpression? compileExpression,
+  Device? device,
+  GetSkSLMethod? skSLMethod,
+  FlutterProject? flutterProject,
+  PrintStructuredErrorLogMethod? printStructuredErrorLogMethod,
+  required vm_service.VmService vmService,
+}) async {
+  // Each service registration requires a request to the attached VM service. Since the
+  // order of these requests does not matter, store each future in a list and await
+  // all at the end of this method.
+  final List<Future<vm_service.Success?>> registrationRequests = <Future<vm_service.Success?>>[];
+  if (reloadSources != null) {
+    vmService.registerServiceCallback(kReloadSourcesServiceName, (
+      Map<String, Object?> params,
+    ) async {
+      final String isolateId = _validateRpcStringParam('reloadSources', params, 'isolateId');
+      final bool force = _validateRpcBoolParam('reloadSources', params, 'force');
+      final bool pause = _validateRpcBoolParam('reloadSources', params, 'pause');
+
+      await reloadSources(isolateId, force: force, pause: pause);
+
+      return <String, Object>{
+        'result': <String, Object>{kResultType: kResultTypeSuccess},
+      };
+    });
+    registrationRequests.add(
+      vmService.registerService(kReloadSourcesServiceName, kFlutterToolAlias),
     );
   }
 
-  return new IOWebSocketChannel(socket).cast<String>();
-}
-
-/// The default VM service request timeout.
-const Duration kDefaultRequestTimeout = Duration(seconds: 30);
-
-/// Used for RPC requests that may take a long time.
-const Duration kLongRequestTimeout = Duration(minutes: 1);
-
-/// Used for RPC requests that should never take a long time.
-const Duration kShortRequestTimeout = Duration(seconds: 5);
-
-/// A connection to the Dart VM Service.
-class VMService {
-  VMService._(
-    this._peer,
-    this.httpAddress,
-    this.wsAddress,
-    this._requestTimeout,
-    ReloadSources reloadSources,
-    CompileExpression compileExpression,
-  ) {
-    _vm = new VM._empty(this);
-    _peer.listen().catchError(_connectionError.completeError);
-
-    _peer.registerMethod('streamNotify', (rpc.Parameters event) {
-      _handleStreamNotify(event.asMap);
+  if (restart != null) {
+    vmService.registerServiceCallback(kHotRestartServiceName, (Map<String, Object?> params) async {
+      final bool pause = _validateRpcBoolParam('compileExpression', params, 'pause');
+      await restart(pause: pause);
+      return <String, Object>{
+        'result': <String, Object>{kResultType: kResultTypeSuccess},
+      };
     });
-
-    if (reloadSources != null) {
-      _peer.registerMethod('reloadSources', (rpc.Parameters params) async {
-        final String isolateId = params['isolateId'].value;
-        final bool force = params.asMap['force'] ?? false;
-        final bool pause = params.asMap['pause'] ?? false;
-
-        if (isolateId is! String || isolateId.isEmpty)
-          throw new rpc.RpcException.invalidParams('Invalid \'isolateId\': $isolateId');
-        if (force is! bool)
-          throw new rpc.RpcException.invalidParams('Invalid \'force\': $force');
-        if (pause is! bool)
-          throw new rpc.RpcException.invalidParams('Invalid \'pause\': $pause');
-
-        try {
-          await reloadSources(isolateId, force: force, pause: pause);
-          return <String, String>{'type': 'Success'};
-        } on rpc.RpcException {
-          rethrow;
-        } catch (e, st) {
-          throw new rpc.RpcException(rpc_error_code.SERVER_ERROR,
-              'Error during Sources Reload: $e\n$st');
-        }
-      });
-
-      // If the Flutter Engine doesn't support service registration this will
-      // have no effect
-      _peer.sendNotification('_registerService', <String, String>{
-        'service': 'reloadSources',
-        'alias': 'Flutter Tools'
-      });
-    }
-
-    if (compileExpression != null) {
-      _peer.registerMethod('compileExpression', (rpc.Parameters params) async {
-        final String isolateId = params['isolateId'].asString;
-        if (isolateId is! String || isolateId.isEmpty)
-          throw new rpc.RpcException.invalidParams(
-              'Invalid \'isolateId\': $isolateId');
-        final String expression = params['expression'].asString;
-        if (expression is! String || expression.isEmpty)
-          throw new rpc.RpcException.invalidParams(
-              'Invalid \'expression\': $expression');
-        final List<String> definitions =
-            new List<String>.from(params['definitions'].asList);
-        final List<String> typeDefinitions =
-            new List<String>.from(params['typeDefinitions'].asList);
-        final String libraryUri = params['libraryUri'].asString;
-        final String klass = params['klass'].exists ? params['klass'].asString : null;
-        final bool isStatic = params['isStatic'].asBoolOr(false);
-
-        try {
-          final String kernelBytesBase64 = await compileExpression(isolateId,
-              expression, definitions, typeDefinitions, libraryUri, klass,
-              isStatic);
-          return <String, dynamic>{'type': 'Success',
-            'result': <String, dynamic> {'kernelBytes': kernelBytesBase64}};
-        } on rpc.RpcException {
-          rethrow;
-        } catch (e, st) {
-          throw new rpc.RpcException(rpc_error_code.SERVER_ERROR,
-              'Error during expression compilation: $e\n$st');
-        }
-      });
-
-      _peer.sendNotification('_registerService', <String, String>{
-        'service': 'compileExpression',
-        'alias': 'Flutter Tools'
-      });
-    }
+    registrationRequests.add(vmService.registerService(kHotRestartServiceName, kFlutterToolAlias));
   }
 
-  /// Enables recording of VMService JSON-rpc activity to the specified base
-  /// recording [location].
-  ///
-  /// Activity will be recorded in a subdirectory of [location] named
-  /// `"vmservice"`. It is permissible for [location] to represent an existing
-  /// non-empty directory as long as there is no collision with the
-  /// `"vmservice"` subdirectory.
-  static void enableRecordingConnection(String location) {
-    final Directory dir = getRecordingSink(location, _kRecordingType);
-    _openChannel = (Uri uri) async {
-      final StreamChannel<String> delegate = await _defaultOpenChannel(uri);
-      return new RecordingVMServiceChannel(delegate, dir);
+  vmService.registerServiceCallback(kFlutterVersionServiceName, (
+    Map<String, Object?> params,
+  ) async {
+    final FlutterVersion version =
+        context.get<FlutterVersion>() ??
+        FlutterVersion(fs: globals.fs, flutterRoot: Cache.flutterRoot!);
+    final Map<String, Object> versionJson = version.toJson();
+    versionJson['frameworkRevisionShort'] = version.frameworkRevisionShort;
+    versionJson['engineRevisionShort'] = version.engineRevisionShort;
+    return <String, Object>{
+      'result': <String, Object>{kResultType: kResultTypeSuccess, ...versionJson},
     };
-  }
-
-  /// Enables VMService JSON-rpc replay mode.
-  ///
-  /// [location] must represent a directory to which VMService JSON-rpc
-  /// activity has been recorded (i.e. the result of having been previously
-  /// passed to [enableRecordingConnection]), or a [ToolExit] will be thrown.
-  static void enableReplayConnection(String location) {
-    final Directory dir = getReplaySource(location, _kRecordingType);
-    _openChannel = (Uri uri) async => new ReplayVMServiceChannel(dir);
-  }
-
-  /// Connect to a Dart VM Service at [httpUri].
-  ///
-  /// Requests made via the returned [VMService] time out after [requestTimeout]
-  /// amount of time, which is [kDefaultRequestTimeout] by default.
-  ///
-  /// If the [reloadSources] parameter is not null, the 'reloadSources' service
-  /// will be registered. The VM Service Protocol allows clients to register
-  /// custom services that can be invoked by other clients through the service
-  /// protocol itself.
-  ///
-  /// See: https://github.com/dart-lang/sdk/commit/df8bf384eb815cf38450cb50a0f4b62230fba217
-  static Future<VMService> connect(
-    Uri httpUri, {
-    Duration requestTimeout = kDefaultRequestTimeout,
-    ReloadSources reloadSources,
-    CompileExpression compileExpression,
-  }) async {
-    final Uri wsUri = httpUri.replace(scheme: 'ws', path: fs.path.join(httpUri.path, 'ws'));
-    final StreamChannel<String> channel = await _openChannel(wsUri);
-    final rpc.Peer peer = new rpc.Peer.withoutJson(jsonDocument.bind(channel));
-    final VMService service = new VMService._(peer, httpUri, wsUri, requestTimeout, reloadSources, compileExpression);
-    // This call is to ensure we are able to establish a connection instead of
-    // keeping on trucking and failing farther down the process.
-    await service._sendRequest('getVersion', const <String, dynamic>{});
-    return service;
-  }
-
-  final Uri httpAddress;
-  final Uri wsAddress;
-  final rpc.Peer _peer;
-  final Duration _requestTimeout;
-  final Completer<Map<String, dynamic>> _connectionError = new Completer<Map<String, dynamic>>();
-
-  VM _vm;
-  /// The singleton [VM] object. Owns [Isolate] and [FlutterView] objects.
-  VM get vm => _vm;
-
-  final Map<String, StreamController<ServiceEvent>> _eventControllers =
-      <String, StreamController<ServiceEvent>>{};
-
-  final Set<String> _listeningFor = new Set<String>();
-
-  /// Whether our connection to the VM service has been closed;
-  bool get isClosed => _peer.isClosed;
-
-  Future<Null> get done async {
-    await _peer.done;
-  }
-
-  // Events
-  Future<Stream<ServiceEvent>> get onDebugEvent => onEvent('Debug');
-  Future<Stream<ServiceEvent>> get onExtensionEvent => onEvent('Extension');
-  // IsolateStart, IsolateRunnable, IsolateExit, IsolateUpdate, ServiceExtensionAdded
-  Future<Stream<ServiceEvent>> get onIsolateEvent => onEvent('Isolate');
-  Future<Stream<ServiceEvent>> get onTimelineEvent => onEvent('Timeline');
-  // TODO(johnmccutchan): Add FlutterView events.
-
-  /// Returns a stream of VM service events.
-  ///
-  /// This purposely returns a `Future<Stream<T>>` rather than a `Stream<T>`
-  /// because it first registers with the VM to receive events on the stream,
-  /// and only once the VM has acknowledged that the stream has started will
-  /// we return the associated stream. Any attempt to streamline this API into
-  /// returning `Stream<T>` should take that into account to avoid race
-  /// conditions.
-  Future<Stream<ServiceEvent>> onEvent(String streamId) async {
-    await _streamListen(streamId);
-    return _getEventController(streamId).stream;
-  }
-
-  Future<Map<String, dynamic>> _sendRequest(
-    String method,
-    Map<String, dynamic> params,
-  ) {
-    return Future.any(<Future<Map<String, dynamic>>>[
-      _peer.sendRequest(method, params).then<Map<String, dynamic>>(castStringKeyedMap),
-      _connectionError.future,
-    ]);
-  }
-
-  StreamController<ServiceEvent> _getEventController(String eventName) {
-    StreamController<ServiceEvent> controller = _eventControllers[eventName];
-    if (controller == null) {
-      controller = new StreamController<ServiceEvent>.broadcast();
-      _eventControllers[eventName] = controller;
-    }
-    return controller;
-  }
-
-  void _handleStreamNotify(Map<String, dynamic> data) {
-    final String streamId = data['streamId'];
-    final Map<String, dynamic> eventData = data['event'];
-    final Map<String, dynamic> eventIsolate = eventData['isolate'];
-
-    // Log event information.
-    printTrace(data.toString());
-
-    ServiceEvent event;
-    if (eventIsolate != null) {
-      // getFromMap creates the Isolate if necessary.
-      final Isolate isolate = vm.getFromMap(eventIsolate);
-      event = new ServiceObject._fromMap(isolate, eventData);
-      if (event.kind == ServiceEvent.kIsolateExit) {
-        vm._isolateCache.remove(isolate.id);
-        vm._buildIsolateList();
-      } else if (event.kind == ServiceEvent.kIsolateRunnable) {
-        // Force reload once the isolate becomes runnable so that we
-        // update the root library.
-        isolate.reload();
-      }
-    } else {
-      // The event doesn't have an isolate, so it is owned by the VM.
-      event = new ServiceObject._fromMap(vm, eventData);
-    }
-    _getEventController(streamId).add(event);
-  }
-
-  Future<Null> _streamListen(String streamId) async {
-    if (!_listeningFor.contains(streamId)) {
-      _listeningFor.add(streamId);
-      await _sendRequest('streamListen', <String, dynamic>{ 'streamId': streamId });
-    }
-  }
-
-  /// Reloads the VM.
-  Future<VM> getVM() async {
-    return await _vm.reload();
-  }
-
-  Future<Null> waitForViews({int attempts = 5, int attemptSeconds = 1}) async {
-    if (!vm.isFlutterEngine)
-      return;
-    await vm.refreshViews();
-    for (int i = 0; (vm.firstView == null) && (i < attempts); i++) {
-      // If the VM doesn't yet have a view, wait for one to show up.
-      printTrace('Waiting for Flutter view');
-      await new Future<Null>.delayed(new Duration(seconds: attemptSeconds));
-      await getVM();
-      await vm.refreshViews();
-    }
-  }
-}
-
-/// An error that is thrown when constructing/updating a service object.
-class VMServiceObjectLoadError {
-  VMServiceObjectLoadError(this.message, this.map);
-  final String message;
-  final Map<String, dynamic> map;
-}
-
-bool _isServiceMap(Map<String, dynamic> m) {
-  return (m != null) && (m['type'] != null);
-}
-bool _hasRef(String type) => (type != null) && type.startsWith('@');
-String _stripRef(String type) => _hasRef(type) ? type.substring(1) : type;
-
-/// Given a raw response from the service protocol and a [ServiceObjectOwner],
-/// recursively walk the response and replace values that are service maps with
-/// actual [ServiceObject]s. During the upgrade the owner is given a chance
-/// to return a cached / canonicalized object.
-void _upgradeCollection(dynamic collection,
-                        ServiceObjectOwner owner) {
-  if (collection is ServiceMap) {
-    return;
-  }
-  if (collection is Map<String, dynamic>) {
-    _upgradeMap(collection, owner);
-  } else if (collection is List) {
-    _upgradeList(collection, owner);
-  }
-}
-
-void _upgradeMap(Map<String, dynamic> map, ServiceObjectOwner owner) {
-  map.forEach((String k, dynamic v) {
-    if ((v is Map<String, dynamic>) && _isServiceMap(v)) {
-      map[k] = owner.getFromMap(v);
-    } else if (v is List) {
-      _upgradeList(v, owner);
-    } else if (v is Map<String, dynamic>) {
-      _upgradeMap(v, owner);
-    }
   });
-}
+  registrationRequests.add(
+    vmService.registerService(kFlutterVersionServiceName, kFlutterToolAlias),
+  );
 
-void _upgradeList(List<dynamic> list, ServiceObjectOwner owner) {
-  for (int i = 0; i < list.length; i++) {
-    final dynamic v = list[i];
-    if ((v is Map<String, dynamic>) && _isServiceMap(v)) {
-      list[i] = owner.getFromMap(v);
-    } else if (v is List) {
-      _upgradeList(v, owner);
-    } else if (v is Map<String, dynamic>) {
-      _upgradeMap(v, owner);
-    }
-  }
-}
-
-/// Base class of all objects received over the service protocol.
-abstract class ServiceObject {
-  ServiceObject._empty(this._owner);
-
-  /// Factory constructor given a [ServiceObjectOwner] and a service map,
-  /// upgrade the map into a proper [ServiceObject]. This function always
-  /// returns a new instance and does not interact with caches.
-  factory ServiceObject._fromMap(ServiceObjectOwner owner,
-                                 Map<String, dynamic> map) {
-    if (map == null)
-      return null;
-
-    if (!_isServiceMap(map))
-      throw new VMServiceObjectLoadError('Expected a service map', map);
-
-    final String type = _stripRef(map['type']);
-
-    ServiceObject serviceObject;
-    switch (type) {
-      case 'Event':
-        serviceObject = new ServiceEvent._empty(owner);
-      break;
-      case 'FlutterView':
-        serviceObject = new FlutterView._empty(owner.vm);
-      break;
-      case 'Isolate':
-        serviceObject = new Isolate._empty(owner.vm);
-      break;
-    }
-    // If we don't have a model object for this service object type, as a
-    // fallback return a ServiceMap object.
-    serviceObject ??= new ServiceMap._empty(owner);
-    // We have now constructed an empty service object, call update to populate it.
-    serviceObject.updateFromMap(map);
-    return serviceObject;
-  }
-
-  final ServiceObjectOwner _owner;
-  ServiceObjectOwner get owner => _owner;
-
-  /// The id of this object.
-  String get id => _id;
-  String _id;
-
-  /// The user-level type of this object.
-  String get type => _type;
-  String _type;
-
-  /// The vm-level type of this object. Usually the same as [type].
-  String get vmType => _vmType;
-  String _vmType;
-
-  /// Is it safe to cache this object?
-  bool _canCache = false;
-  bool get canCache => _canCache;
-
-  /// Has this object been fully loaded?
-  bool get loaded => _loaded;
-  bool _loaded = false;
-
-  /// Is this object immutable after it is [loaded]?
-  bool get immutable => false;
-
-  String get name => _name;
-  String _name;
-
-  String get vmName => _vmName;
-  String _vmName;
-
-  /// If this is not already loaded, load it. Otherwise reload.
-  Future<ServiceObject> load() async {
-    if (loaded) {
-      return this;
-    }
-    return reload();
-  }
-
-  /// Fetch this object from vmService and return the response directly.
-  Future<Map<String, dynamic>> _fetchDirect() {
-    final Map<String, dynamic> params = <String, dynamic>{
-      'objectId': id,
-    };
-    return _owner.isolate.invokeRpcRaw('getObject', params: params);
-  }
-
-  Future<ServiceObject> _inProgressReload;
-  /// Reload the service object (if possible).
-  Future<ServiceObject> reload() async {
-    final bool hasId = (id != null) && (id != '');
-    final bool isVM = this is VM;
-    // We should always reload the VM.
-    // We can't reload objects without an id.
-    // We shouldn't reload an immutable and already loaded object.
-    final bool skipLoad = !isVM && (!hasId || (immutable && loaded));
-    if (skipLoad) {
-      return this;
-    }
-
-    if (_inProgressReload == null) {
-      final Completer<ServiceObject> completer = new Completer<ServiceObject>();
-      _inProgressReload = completer.future;
+  if (compileExpression != null) {
+    vmService.registerServiceCallback(kCompileExpressionServiceName, (
+      Map<String, Object?> params,
+    ) async {
+      final String isolateId = _validateRpcStringParam('compileExpression', params, 'isolateId');
+      final String expression = _validateRpcStringParam('compileExpression', params, 'expression');
+      final List<String> definitions = List<String>.from(params['definitions']! as List<Object?>);
+      final List<String> definitionTypes = List<String>.from(
+        params['definitionTypes']! as List<Object?>,
+      );
+      final List<String> typeDefinitions = List<String>.from(
+        params['typeDefinitions']! as List<Object?>,
+      );
+      final List<String> typeBounds = List<String>.from(params['typeBounds']! as List<Object?>);
+      final List<String> typeDefaults = List<String>.from(params['typeDefaults']! as List<Object?>);
+      final String libraryUri = params['libraryUri']! as String;
+      final String? klass = params['klass'] as String?;
+      final String? method = params['method'] as String?;
+      final bool isStatic = _validateRpcBoolParam('compileExpression', params, 'isStatic');
 
       try {
-        final Map<String, dynamic> response = await _fetchDirect();
-        if (_stripRef(response['type']) == 'Sentinel') {
-          // An object may have been collected.
-          completer.complete(new ServiceObject._fromMap(owner, response));
-        } else {
-          updateFromMap(response);
-          completer.complete(this);
-        }
-      } catch (e, st) {
-        completer.completeError(e, st);
-      }
-      _inProgressReload = null;
-      return await completer.future;
-    }
-
-    return await _inProgressReload;
-  }
-
-  /// Update [this] using [map] as a source. [map] can be a service reference.
-  void updateFromMap(Map<String, dynamic> map) {
-    // Don't allow the type to change on an object update.
-    final bool mapIsRef = _hasRef(map['type']);
-    final String mapType = _stripRef(map['type']);
-
-    if ((_type != null) && (_type != mapType)) {
-      throw new VMServiceObjectLoadError('ServiceObject types must not change',
-                                         map);
-    }
-    _type = mapType;
-    _vmType = map.containsKey('_vmType') ? _stripRef(map['_vmType']) : _type;
-
-    _canCache = map['fixedId'] == true;
-    if ((_id != null) && (_id != map['id']) && _canCache) {
-      throw new VMServiceObjectLoadError('ServiceObject id changed', map);
-    }
-    _id = map['id'];
-
-    // Copy name properties.
-    _name = map['name'];
-    _vmName = map.containsKey('_vmName') ? map['_vmName'] : _name;
-
-    // We have now updated all common properties, let the subclasses update
-    // their specific properties.
-    _update(map, mapIsRef);
-  }
-
-  /// Implemented by subclasses to populate their model.
-  void _update(Map<String, dynamic> map, bool mapIsRef);
-}
-
-class ServiceEvent extends ServiceObject {
-  /// The possible 'kind' values.
-  static const String kVMUpdate               = 'VMUpdate';
-  static const String kIsolateStart           = 'IsolateStart';
-  static const String kIsolateRunnable        = 'IsolateRunnable';
-  static const String kIsolateExit            = 'IsolateExit';
-  static const String kIsolateUpdate          = 'IsolateUpdate';
-  static const String kIsolateReload          = 'IsolateReload';
-  static const String kIsolateSpawn           = 'IsolateSpawn';
-  static const String kServiceExtensionAdded  = 'ServiceExtensionAdded';
-  static const String kPauseStart             = 'PauseStart';
-  static const String kPauseExit              = 'PauseExit';
-  static const String kPauseBreakpoint        = 'PauseBreakpoint';
-  static const String kPauseInterrupted       = 'PauseInterrupted';
-  static const String kPauseException         = 'PauseException';
-  static const String kPausePostRequest       = 'PausePostRequest';
-  static const String kNone                   = 'None';
-  static const String kResume                 = 'Resume';
-  static const String kBreakpointAdded        = 'BreakpointAdded';
-  static const String kBreakpointResolved     = 'BreakpointResolved';
-  static const String kBreakpointRemoved      = 'BreakpointRemoved';
-  static const String kGraph                  = '_Graph';
-  static const String kGC                     = 'GC';
-  static const String kInspect                = 'Inspect';
-  static const String kDebuggerSettingsUpdate = '_DebuggerSettingsUpdate';
-  static const String kConnectionClosed       = 'ConnectionClosed';
-  static const String kLogging                = '_Logging';
-  static const String kExtension              = 'Extension';
-
-  ServiceEvent._empty(ServiceObjectOwner owner) : super._empty(owner);
-
-  String _kind;
-  String get kind => _kind;
-  DateTime _timestamp;
-  DateTime get timestamp => _timestamp;
-  String _extensionKind;
-  String get extensionKind => _extensionKind;
-  Map<String, dynamic> _extensionData;
-  Map<String, dynamic> get extensionData => _extensionData;
-  List<Map<String, dynamic>> _timelineEvents;
-  List<Map<String, dynamic>> get timelineEvents => _timelineEvents;
-
-  @override
-  void _update(Map<String, dynamic> map, bool mapIsRef) {
-    _loaded = true;
-    _upgradeCollection(map, owner);
-    _kind = map['kind'];
-    assert(map['isolate'] == null || owner == map['isolate']);
-    _timestamp =
-        new DateTime.fromMillisecondsSinceEpoch(map['timestamp']);
-    if (map['extensionKind'] != null) {
-      _extensionKind = map['extensionKind'];
-      _extensionData = map['extensionData'];
-    }
-    _timelineEvents = map['timelineEvents'];
-  }
-
-  bool get isPauseEvent {
-    return kind == kPauseStart ||
-           kind == kPauseExit ||
-           kind == kPauseBreakpoint ||
-           kind == kPauseInterrupted ||
-           kind == kPauseException ||
-           kind == kPausePostRequest ||
-           kind == kNone;
-  }
-}
-
-/// A ServiceObjectOwner is either a [VM] or an [Isolate]. Owners can cache
-/// and/or canonicalize service objects received over the wire.
-abstract class ServiceObjectOwner extends ServiceObject {
-  ServiceObjectOwner._empty(ServiceObjectOwner owner) : super._empty(owner);
-
-  /// Returns the owning VM.
-  VM get vm => null;
-
-  /// Returns the owning isolate (if any).
-  Isolate get isolate => null;
-
-  /// Returns the vmService connection.
-  VMService get vmService => null;
-
-  /// Builds a [ServiceObject] corresponding to the [id] from [map].
-  /// The result may come from the cache. The result will not necessarily
-  /// be [loaded].
-  ServiceObject getFromMap(Map<String, dynamic> map);
-}
-
-/// There is only one instance of the VM class. The VM class owns [Isolate]
-/// and [FlutterView] objects.
-class VM extends ServiceObjectOwner {
-  VM._empty(this._vmService) : super._empty(null);
-
-  /// Connection to the VMService.
-  final VMService _vmService;
-  @override
-  VMService get vmService => _vmService;
-
-  @override
-  VM get vm => this;
-
-  @override
-  Future<Map<String, dynamic>> _fetchDirect() async {
-    return invokeRpcRaw('getVM');
-  }
-
-  @override
-  void _update(Map<String, dynamic> map, bool mapIsRef) {
-    if (mapIsRef)
-      return;
-
-    // Upgrade the collection. A side effect of this call is that any new
-    // isolates in the map are created and added to the isolate cache.
-    _upgradeCollection(map, this);
-    _loaded = true;
-
-    // TODO(johnmccutchan): Extract any properties we care about here.
-    _pid = map['pid'];
-    if (map['_heapAllocatedMemoryUsage'] != null) {
-      _heapAllocatedMemoryUsage = map['_heapAllocatedMemoryUsage'];
-    }
-    _maxRSS = map['_maxRSS'];
-    _embedder = map['_embedder'];
-
-    // Remove any isolates which are now dead from the isolate cache.
-    _removeDeadIsolates(map['isolates'].cast<Isolate>());
-  }
-
-  final Map<String, ServiceObject> _cache = <String,ServiceObject>{};
-  final Map<String,Isolate> _isolateCache = <String,Isolate>{};
-
-  /// The list of live isolates, ordered by isolate start time.
-  final List<Isolate> isolates = <Isolate>[];
-
-  /// The set of live views.
-  final Map<String, FlutterView> _viewCache = <String, FlutterView>{};
-
-  /// The pid of the VM's process.
-  int _pid;
-  int get pid => _pid;
-
-  /// The number of bytes allocated (e.g. by malloc) in the native heap.
-  int _heapAllocatedMemoryUsage;
-  int get heapAllocatedMemoryUsage {
-    return _heapAllocatedMemoryUsage == null ? 0 : _heapAllocatedMemoryUsage;
-  }
-
-  /// The peak resident set size for the process.
-  int _maxRSS;
-  int get maxRSS => _maxRSS == null ? 0 : _maxRSS;
-
-  // The embedder's name, Flutter or dart_runner.
-  String _embedder;
-  String get embedder => _embedder;
-  bool get isFlutterEngine => embedder == 'Flutter';
-  bool get isDartRunner => embedder == 'dart_runner';
-
-  int _compareIsolates(Isolate a, Isolate b) {
-    final DateTime aStart = a.startTime;
-    final DateTime bStart = b.startTime;
-    if (aStart == null) {
-      if (bStart == null) {
-        return 0;
-      } else {
-        return 1;
-      }
-    }
-    if (bStart == null) {
-      return -1;
-    }
-    return aStart.compareTo(bStart);
-  }
-
-  void _buildIsolateList() {
-    final List<Isolate> isolateList = _isolateCache.values.toList();
-    isolateList.sort(_compareIsolates);
-    isolates.clear();
-    isolates.addAll(isolateList);
-  }
-
-  void _removeDeadIsolates(List<Isolate> newIsolates) {
-    // Build a set of new isolates.
-    final Set<String> newIsolateSet = new Set<String>();
-    for (Isolate iso in newIsolates)
-      newIsolateSet.add(iso.id);
-
-    // Remove any old isolates which no longer exist.
-    final List<String> toRemove = <String>[];
-    _isolateCache.forEach((String id, _) {
-      if (!newIsolateSet.contains(id)) {
-        toRemove.add(id);
+        final String kernelBytesBase64 = await compileExpression(
+          isolateId,
+          expression,
+          definitions,
+          definitionTypes,
+          typeDefinitions,
+          typeBounds,
+          typeDefaults,
+          libraryUri,
+          klass,
+          method,
+          isStatic,
+        );
+        return <String, Object>{
+          kResultType: kResultTypeSuccess,
+          'result': <String, String>{'kernelBytes': kernelBytesBase64},
+        };
+      } on VmServiceExpressionCompilationException catch (e) {
+        // In most situations, we'd just let VmService catch this exception and
+        // build the error response. However, in this case we build the error
+        // response manually and return it to avoid including the stack trace
+        // from the tool in the response, instead returning the compilation
+        // error message in the 'details' property of the returned error object.
+        return <String, Object>{
+          kError:
+              vm_service.RPCError.withDetails(
+                'compileExpression',
+                vm_service.RPCErrorKind.kExpressionCompilationError.code,
+                vm_service.RPCErrorKind.kExpressionCompilationError.message,
+                details: e.errorMessage,
+              ).toMap(),
+        };
       }
     });
-    toRemove.forEach(_isolateCache.remove);
-    _buildIsolateList();
-  }
-
-  @override
-  ServiceObject getFromMap(Map<String, dynamic> map) {
-    if (map == null) {
-      return null;
-    }
-    final String type = _stripRef(map['type']);
-    if (type == 'VM') {
-      // Update this VM object.
-      updateFromMap(map);
-      return this;
-    }
-
-    final String mapId = map['id'];
-
-    switch (type) {
-      case 'Isolate': {
-        // Check cache.
-        Isolate isolate = _isolateCache[mapId];
-        if (isolate == null) {
-          // Add new isolate to the cache.
-          isolate = new ServiceObject._fromMap(this, map);
-          _isolateCache[mapId] = isolate;
-          _buildIsolateList();
-
-          // Eagerly load the isolate.
-          isolate.load().catchError((dynamic e, StackTrace stack) {
-            printTrace('Eagerly loading an isolate failed: $e\n$stack');
-          });
-        } else {
-          // Existing isolate, update data.
-          isolate.updateFromMap(map);
-        }
-        return isolate;
-      }
-      break;
-      case 'FlutterView': {
-        FlutterView view = _viewCache[mapId];
-        if (view == null) {
-          // Add new view to the cache.
-          view = new ServiceObject._fromMap(this, map);
-          _viewCache[mapId] = view;
-        } else {
-          view.updateFromMap(map);
-        }
-        return view;
-      }
-      break;
-      default:
-        throw new VMServiceObjectLoadError(
-            'VM.getFromMap called for something other than an isolate', map);
-    }
-  }
-
-  // This function does not reload the isolate if it's found in the cache.
-  Future<Isolate> getIsolate(String isolateId) {
-    if (!loaded) {
-      // Trigger a VM load, then get the isolate. Ignore any errors.
-      return load().then<Isolate>((ServiceObject serviceObject) => getIsolate(isolateId)).catchError((dynamic error) => null);
-    }
-    return new Future<Isolate>.value(_isolateCache[isolateId]);
-  }
-
-  /// Invoke the RPC and return the raw response.
-  ///
-  /// If `timeoutFatal` is false, then a timeout will result in a null return
-  /// value. Otherwise, it results in an exception.
-  Future<Map<String, dynamic>> invokeRpcRaw(String method, {
-    Map<String, dynamic> params = const <String, dynamic>{},
-    Duration timeout,
-    bool timeoutFatal = true,
-  }) async {
-    printTrace('$method: $params');
-
-    assert(params != null);
-    timeout ??= _vmService._requestTimeout;
-    try {
-      final Map<String, dynamic> result = await _vmService
-          ._sendRequest(method, params)
-          .timeout(timeout);
-      return result;
-    } on TimeoutException {
-      printTrace('Request to Dart VM Service timed out: $method($params)');
-      if (timeoutFatal)
-        throw new TimeoutException('Request to Dart VM Service timed out: $method($params)');
-      return null;
-    } on WebSocketChannelException catch (error) {
-      throwToolExit('Error connecting to observatory: $error');
-      return null;
-    } on rpc.RpcException catch (error) {
-      printError('Error ${error.code} received from application: ${error.message}');
-      printTrace('${error.data}');
-      rethrow;
-    }
-  }
-
-  /// Invoke the RPC and return a [ServiceObject] response.
-  Future<T> invokeRpc<T extends ServiceObject>(String method, {
-    Map<String, dynamic> params = const <String, dynamic>{},
-    Duration timeout,
-  }) async {
-    final Map<String, dynamic> response = await invokeRpcRaw(
-      method,
-      params: params,
-      timeout: timeout,
-    );
-    final ServiceObject serviceObject = new ServiceObject._fromMap(this, response);
-    if ((serviceObject != null) && (serviceObject._canCache)) {
-      final String serviceObjectId = serviceObject.id;
-      _cache.putIfAbsent(serviceObjectId, () => serviceObject);
-    }
-    return serviceObject;
-  }
-
-  /// Create a new development file system on the device.
-  Future<Map<String, dynamic>> createDevFS(String fsName) {
-    return invokeRpcRaw('_createDevFS', params: <String, dynamic> { 'fsName': fsName });
-  }
-
-  /// List the development file system son the device.
-  Future<List<String>> listDevFS() async {
-    return (await invokeRpcRaw('_listDevFS'))['fsNames'];
-  }
-
-  // Write one file into a file system.
-  Future<Map<String, dynamic>> writeDevFSFile(String fsName, {
-    @required String path,
-    @required List<int> fileContents
-  }) {
-    assert(path != null);
-    assert(fileContents != null);
-    return invokeRpcRaw(
-      '_writeDevFSFile',
-      params: <String, dynamic>{
-        'fsName': fsName,
-        'path': path,
-        'fileContents': base64.encode(fileContents),
-      },
+    registrationRequests.add(
+      vmService.registerService(kCompileExpressionServiceName, kFlutterToolAlias),
     );
   }
-
-  // Read one file from a file system.
-  Future<List<int>> readDevFSFile(String fsName, String path) async {
-    final Map<String, dynamic> response = await invokeRpcRaw(
-      '_readDevFSFile',
-      params: <String, dynamic>{
-        'fsName': fsName,
-        'path': path,
-      },
-    );
-    return base64.decode(response['fileContents']);
-  }
-
-  /// The complete list of a file system.
-  Future<List<String>> listDevFSFiles(String fsName) async {
-    return (await invokeRpcRaw('_listDevFSFiles', params: <String, dynamic>{ 'fsName': fsName }))['files'];
-  }
-
-  /// Delete an existing file system.
-  Future<Map<String, dynamic>> deleteDevFS(String fsName) {
-    return invokeRpcRaw('_deleteDevFS', params: <String, dynamic>{ 'fsName': fsName });
-  }
-
-  Future<ServiceMap> runInView(String viewId,
-                               Uri main,
-                               Uri packages,
-                               Uri assetsDirectory) {
-    // TODO(goderbauer): Transfer Uri (instead of file path) when remote end supports it.
-    return invokeRpc<ServiceMap>('_flutter.runInView',
-      params: <String, dynamic> {
-        'viewId': viewId,
-        'mainScript': main.toFilePath(windows: false),
-        'packagesFile': packages.toFilePath(windows: false),
-        'assetDirectory': assetsDirectory.toFilePath(windows: false)
+  if (device != null) {
+    vmService.registerServiceCallback(kFlutterMemoryInfoServiceName, (
+      Map<String, Object?> params,
+    ) async {
+      final MemoryInfo result = await device.queryMemoryInfo();
+      return <String, Object>{
+        'result': <String, Object>{kResultType: kResultTypeSuccess, ...result.toJson()},
+      };
     });
-  }
-
-  Future<Map<String, dynamic>> clearVMTimeline() {
-    return invokeRpcRaw('_clearVMTimeline');
-  }
-
-  Future<Map<String, dynamic>> setVMTimelineFlags(List<String> recordedStreams) {
-    assert(recordedStreams != null);
-    return invokeRpcRaw(
-      '_setVMTimelineFlags',
-      params: <String, dynamic>{
-        'recordedStreams': recordedStreams,
-      },
+    registrationRequests.add(
+      vmService.registerService(kFlutterMemoryInfoServiceName, kFlutterToolAlias),
     );
   }
-
-  Future<Map<String, dynamic>> getVMTimeline() {
-    return invokeRpcRaw('_getVMTimeline', timeout: kLongRequestTimeout);
-  }
-
-  Future<Null> refreshViews() async {
-    if (!isFlutterEngine)
-      return;
-    _viewCache.clear();
-    for (Isolate isolate in isolates.toList()) {
-      await vmService.vm.invokeRpc('_flutter.listViews',
-          timeout: kLongRequestTimeout,
-          params: <String, dynamic> {'isolateId': isolate.id});
-    }
-  }
-
-  Iterable<FlutterView> get views => _viewCache.values;
-
-  FlutterView get firstView {
-    return _viewCache.values.isEmpty ? null : _viewCache.values.first;
-  }
-
-  List<FlutterView> allViewsWithName(String isolateFilter) {
-    if (_viewCache.values.isEmpty)
-      return null;
-    return _viewCache.values.where(
-      (FlutterView v) => v.uiIsolate.name.contains(isolateFilter)
-    ).toList();
-  }
-}
-
-class HeapSpace extends ServiceObject {
-  HeapSpace._empty(ServiceObjectOwner owner) : super._empty(owner);
-
-  int _used = 0;
-  int _capacity = 0;
-  int _external = 0;
-  int _collections = 0;
-  double _totalCollectionTimeInSeconds = 0.0;
-  double _averageCollectionPeriodInMillis = 0.0;
-
-  int get used => _used;
-  int get capacity => _capacity;
-  int get external => _external;
-
-  Duration get avgCollectionTime {
-    final double mcs = _totalCollectionTimeInSeconds *
-      Duration.microsecondsPerSecond /
-      math.max(_collections, 1);
-    return new Duration(microseconds: mcs.ceil());
-  }
-
-  Duration get avgCollectionPeriod {
-    final double mcs = _averageCollectionPeriodInMillis *
-                       Duration.microsecondsPerMillisecond;
-    return new Duration(microseconds: mcs.ceil());
-  }
-
-  @override
-  void _update(Map<String, dynamic> map, bool mapIsRef) {
-    _used = map['used'];
-    _capacity = map['capacity'];
-    _external = map['external'];
-    _collections = map['collections'];
-    _totalCollectionTimeInSeconds = map['time'];
-    _averageCollectionPeriodInMillis = map['avgCollectionPeriodMillis'];
-  }
-}
-
-/// A function, field or class along with its source location.
-class ProgramElement {
-  ProgramElement(this.qualifiedName, this.uri, [this.line, this.column]);
-
-  final String qualifiedName;
-  final Uri uri;
-  final int line;
-  final int column;
-
-  @override
-  String toString() {
-    if (line == null)
-      return '$qualifiedName ($uri)';
-    else
-      return '$qualifiedName ($uri:$line)';
-  }
-}
-
-/// An isolate running inside the VM. Instances of the Isolate class are always
-/// canonicalized.
-class Isolate extends ServiceObjectOwner {
-  Isolate._empty(ServiceObjectOwner owner) : super._empty(owner);
-
-  @override
-  VM get vm => owner;
-
-  @override
-  VMService get vmService => vm.vmService;
-
-  @override
-  Isolate get isolate => this;
-
-  DateTime startTime;
-
-  /// The last pause event delivered to the isolate. If the isolate is running,
-  /// this will be a resume event.
-  ServiceEvent pauseEvent;
-
-  final Map<String, ServiceObject> _cache = <String, ServiceObject>{};
-
-  HeapSpace _newSpace;
-  HeapSpace _oldSpace;
-
-  HeapSpace get newSpace => _newSpace;
-  HeapSpace get oldSpace => _oldSpace;
-
-  @override
-  ServiceObject getFromMap(Map<String, dynamic> map) {
-    if (map == null)
-      return null;
-    final String mapType = _stripRef(map['type']);
-    if (mapType == 'Isolate') {
-      // There are sometimes isolate refs in ServiceEvents.
-      return vm.getFromMap(map);
-    }
-
-    final String mapId = map['id'];
-    ServiceObject serviceObject = (mapId != null) ? _cache[mapId] : null;
-    if (serviceObject != null) {
-      serviceObject.updateFromMap(map);
-      return serviceObject;
-    }
-    // Build the object from the map directly.
-    serviceObject = new ServiceObject._fromMap(this, map);
-    if ((serviceObject != null) && serviceObject.canCache)
-      _cache[mapId] = serviceObject;
-    return serviceObject;
-  }
-
-  @override
-  Future<Map<String, dynamic>> _fetchDirect() {
-    return invokeRpcRaw('getIsolate');
-  }
-
-  /// Invoke the RPC and return the raw response.
-  Future<Map<String, dynamic>> invokeRpcRaw(String method, {
-    Map<String, dynamic> params,
-    Duration timeout,
-    bool timeoutFatal = true,
-  }) {
-    // Inject the 'isolateId' parameter.
-    if (params == null) {
-      params = <String, dynamic>{
-        'isolateId': id
+  if (skSLMethod != null) {
+    vmService.registerServiceCallback(kFlutterGetSkSLServiceName, (
+      Map<String, Object?> params,
+    ) async {
+      final String? filename = await skSLMethod();
+      if (filename == null) {
+        return <String, Object>{
+          'result': <String, Object>{kResultType: kResultTypeSuccess},
+        };
+      }
+      return <String, Object>{
+        'result': <String, Object>{kResultType: kResultTypeSuccess, 'filename': filename},
       };
-    } else {
-      params['isolateId'] = id;
-    }
-    return vm.invokeRpcRaw(method, params: params, timeout: timeout, timeoutFatal: timeoutFatal);
-  }
-
-  /// Invoke the RPC and return a ServiceObject response.
-  Future<ServiceObject> invokeRpc(String method, Map<String, dynamic> params) async {
-    return getFromMap(await invokeRpcRaw(method, params: params));
-  }
-
-  void _updateHeaps(Map<String, dynamic> map, bool mapIsRef) {
-    _newSpace ??= new HeapSpace._empty(this);
-    _newSpace._update(map['new'], mapIsRef);
-    _oldSpace ??= new HeapSpace._empty(this);
-    _oldSpace._update(map['old'], mapIsRef);
-  }
-
-  @override
-  void _update(Map<String, dynamic> map, bool mapIsRef) {
-    if (mapIsRef)
-      return;
-    _loaded = true;
-
-    final int startTimeMillis = map['startTime'];
-    startTime = new DateTime.fromMillisecondsSinceEpoch(startTimeMillis);
-
-    _upgradeCollection(map, this);
-
-    pauseEvent = map['pauseEvent'];
-
-    _updateHeaps(map['_heaps'], mapIsRef);
-  }
-
-  static const int kIsolateReloadBarred = 1005;
-
-  Future<Map<String, dynamic>> reloadSources(
-      { bool pause = false,
-        Uri rootLibUri,
-        Uri packagesUri}) async {
-    try {
-      final Map<String, dynamic> arguments = <String, dynamic>{
-        'pause': pause
-      };
-      // TODO(goderbauer): Transfer Uri (instead of file path) when remote end supports it.
-      //     Note: Despite the name, `rootLibUri` and `packagesUri` expect file paths.
-      if (rootLibUri != null) {
-        arguments['rootLibUri'] = rootLibUri.toFilePath(windows: false);
-      }
-      if (packagesUri != null) {
-        arguments['packagesUri'] = packagesUri.toFilePath(windows: false);
-      }
-      final Map<String, dynamic> response = await invokeRpcRaw('_reloadSources', params: arguments);
-      return response;
-    } on rpc.RpcException catch (e) {
-      return new Future<Map<String, dynamic>>.error(<String, dynamic>{
-        'code': e.code,
-        'message': e.message,
-        'data': e.data,
-      });
-    }
-  }
-
-  Future<Map<String, dynamic>> getObject(Map<String, dynamic> objectRef) {
-    return invokeRpcRaw('getObject',
-                        params: <String, dynamic>{'objectId': objectRef['id']});
-  }
-
-  Future<ProgramElement> _describeElement(Map<String, dynamic> elementRef) async {
-    String name = elementRef['name'];
-    Map<String, dynamic> owner = elementRef['owner'];
-    while (owner != null) {
-      final String ownerType = owner['type'];
-      if (ownerType == 'Library' || ownerType == '@Library')
-        break;
-      final String ownerName = owner['name'];
-      name = '$ownerName.$name';
-      owner = owner['owner'];
-    }
-
-    final Map<String, dynamic> fullElement = await getObject(elementRef);
-    final Map<String, dynamic> location = fullElement['location'];
-    final int tokenPos = location['tokenPos'];
-    final Map<String, dynamic> script = await getObject(location['script']);
-
-    // The engine's tag handler doesn't seem to create proper URIs.
-    Uri uri = Uri.parse(script['uri']);
-    if (uri.scheme == '')
-      uri = uri.replace(scheme: 'file');
-
-    // See https://github.com/dart-lang/sdk/blob/master/runtime/vm/service/service.md
-    for (List<int> lineTuple in script['tokenPosTable']) {
-      final int line = lineTuple[0];
-      for (int i = 1; i < lineTuple.length; i += 2) {
-        if (lineTuple[i] == tokenPos) {
-          final int column = lineTuple[i + 1];
-          return new ProgramElement(name, uri, line, column);
-        }
-      }
-    }
-    return new ProgramElement(name, uri);
-  }
-
-  // Lists program elements changed in the most recent reload that have not
-  // since executed.
-  Future<List<ProgramElement>> getUnusedChangesInLastReload() async {
-    final Map<String, dynamic> response =
-      await invokeRpcRaw('_getUnusedChangesInLastReload');
-    final List<Future<ProgramElement>> unusedElements =
-      <Future<ProgramElement>>[];
-    for (Map<String, dynamic> element in response['unused'])
-      unusedElements.add(_describeElement(element));
-    return Future.wait(unusedElements);
-  }
-
-  /// Resumes the isolate.
-  Future<Map<String, dynamic>> resume() {
-    return invokeRpcRaw('resume');
-  }
-
-  // Flutter extension methods.
-
-  // Invoke a flutter extension method, if the flutter extension is not
-  // available, returns null.
-  Future<Map<String, dynamic>> invokeFlutterExtensionRpcRaw(
-    String method, {
-      Map<String, dynamic> params,
-      Duration timeout,
-      bool timeoutFatal = true,
-    }
-  ) async {
-    try {
-      return await invokeRpcRaw(method, params: params, timeout: timeout, timeoutFatal: timeoutFatal);
-    } on rpc.RpcException catch (e) {
-      // If an application is not using the framework
-      if (e.code == rpc_error_code.METHOD_NOT_FOUND)
-        return null;
-      rethrow;
-    }
-  }
-
-  // Debug dump extension methods.
-
-  Future<Map<String, dynamic>> flutterDebugDumpApp() {
-    return invokeFlutterExtensionRpcRaw('ext.flutter.debugDumpApp', timeout: kLongRequestTimeout);
-  }
-
-  Future<Map<String, dynamic>> flutterDebugDumpRenderTree() {
-    return invokeFlutterExtensionRpcRaw('ext.flutter.debugDumpRenderTree', timeout: kLongRequestTimeout);
-  }
-
-  Future<Map<String, dynamic>> flutterDebugDumpLayerTree() {
-    return invokeFlutterExtensionRpcRaw('ext.flutter.debugDumpLayerTree', timeout: kLongRequestTimeout);
-  }
-
-  Future<Map<String, dynamic>> flutterDebugDumpSemanticsTreeInTraversalOrder() {
-    return invokeFlutterExtensionRpcRaw('ext.flutter.debugDumpSemanticsTreeInTraversalOrder', timeout: kLongRequestTimeout);
-  }
-
-  Future<Map<String, dynamic>> flutterDebugDumpSemanticsTreeInInverseHitTestOrder() {
-    return invokeFlutterExtensionRpcRaw('ext.flutter.debugDumpSemanticsTreeInInverseHitTestOrder', timeout: kLongRequestTimeout);
-  }
-
-  Future<Map<String, dynamic>> _flutterToggle(String name) async {
-    Map<String, dynamic> state = await invokeFlutterExtensionRpcRaw('ext.flutter.$name');
-    if (state != null && state.containsKey('enabled') && state['enabled'] is String) {
-      state = await invokeFlutterExtensionRpcRaw(
-        'ext.flutter.$name',
-        params: <String, dynamic>{ 'enabled': state['enabled'] == 'true' ? 'false' : 'true' },
-        timeout: const Duration(milliseconds: 150),
-        timeoutFatal: false,
-      );
-    }
-    return state;
-  }
-
-  Future<Map<String, dynamic>> flutterToggleDebugPaintSizeEnabled() => _flutterToggle('debugPaint');
-
-  Future<Map<String, dynamic>> flutterTogglePerformanceOverlayOverride() => _flutterToggle('showPerformanceOverlay');
-
-  Future<Map<String, dynamic>> flutterToggleWidgetInspector() => _flutterToggle('inspector.show');
-
-  Future<Null> flutterDebugAllowBanner(bool show) async {
-    await invokeFlutterExtensionRpcRaw(
-      'ext.flutter.debugAllowBanner',
-      params: <String, dynamic>{ 'enabled': show ? 'true' : 'false' },
-      timeout: const Duration(milliseconds: 150),
-      timeoutFatal: false,
+    });
+    registrationRequests.add(
+      vmService.registerService(kFlutterGetSkSLServiceName, kFlutterToolAlias),
     );
   }
 
-  // Reload related extension methods.
-  Future<Map<String, dynamic>> flutterReassemble() async {
-    return await invokeFlutterExtensionRpcRaw(
-      'ext.flutter.reassemble',
-      timeout: kShortRequestTimeout,
-      timeoutFatal: true,
+  if (printStructuredErrorLogMethod != null) {
+    vmService.onExtensionEvent.listen(printStructuredErrorLogMethod);
+    registrationRequests.add(
+      vmService
+          .streamListen(vm_service.EventStreams.kExtension)
+          .then<vm_service.Success?>(
+            (vm_service.Success success) => success,
+            // It is safe to ignore this error because we expect an error to be
+            // thrown if we're already subscribed.
+            onError: (Object error, StackTrace stackTrace) {
+              if (error is vm_service.RPCError) {
+                return null;
+              }
+              return Future<vm_service.Success?>.error(error, stackTrace);
+            },
+          ),
     );
   }
 
-  Future<bool> flutterFrameworkPresent() async {
-    return await invokeFlutterExtensionRpcRaw('ext.flutter.frameworkPresent') != null;
+  try {
+    await Future.wait(registrationRequests);
+  } on vm_service.RPCError catch (e) {
+    throwToolExit('Failed to register service methods on attached VM Service: $e');
   }
-
-  Future<Map<String, dynamic>> uiWindowScheduleFrame() async {
-    return await invokeFlutterExtensionRpcRaw('ext.ui.window.scheduleFrame');
-  }
-
-  Future<Map<String, dynamic>> flutterEvictAsset(String assetPath) async {
-    return await invokeFlutterExtensionRpcRaw('ext.flutter.evict',
-      params: <String, dynamic>{
-        'value': assetPath,
-      }
-    );
-  }
-
-  // Application control extension methods.
-  Future<Map<String, dynamic>> flutterExit() async {
-    return await invokeFlutterExtensionRpcRaw(
-      'ext.flutter.exit',
-      timeout: const Duration(seconds: 2),
-      timeoutFatal: false,
-    );
-  }
-
-  Future<String> flutterPlatformOverride([String platform]) async {
-    final Map<String, dynamic> result = await invokeFlutterExtensionRpcRaw(
-      'ext.flutter.platformOverride',
-      params: platform != null ? <String, dynamic>{ 'value': platform } : <String, String>{},
-      timeout: const Duration(seconds: 5),
-      timeoutFatal: false,
-    );
-    if (result != null && result['value'] is String)
-      return result['value'];
-    return 'unknown';
-  }
-
-  @override
-  String toString() => 'Isolate $id';
+  return vmService;
 }
 
-class ServiceMap extends ServiceObject implements Map<String, dynamic> {
-  ServiceMap._empty(ServiceObjectOwner owner) : super._empty(owner);
+/// Connect to a Dart VM Service at [httpUri].
+///
+/// If the [reloadSources] parameter is not null, the 'reloadSources' service
+/// will be registered. The VM Service Protocol allows clients to register
+/// custom services that can be invoked by other clients through the service
+/// protocol itself.
+///
+/// See: https://github.com/dart-lang/sdk/commit/df8bf384eb815cf38450cb50a0f4b62230fba217
+Future<FlutterVmService> connectToVmService(
+  Uri httpUri, {
+  ReloadSources? reloadSources,
+  Restart? restart,
+  CompileExpression? compileExpression,
+  GetSkSLMethod? getSkSLMethod,
+  FlutterProject? flutterProject,
+  PrintStructuredErrorLogMethod? printStructuredErrorLogMethod,
+  io.CompressionOptions compression = io.CompressionOptions.compressionDefault,
+  Device? device,
+  required Logger logger,
+}) async {
+  final VMServiceConnector connector = context.get<VMServiceConnector>() ?? _connect;
+  return connector(
+    httpUri,
+    reloadSources: reloadSources,
+    restart: restart,
+    compileExpression: compileExpression,
+    compression: compression,
+    device: device,
+    getSkSLMethod: getSkSLMethod,
+    flutterProject: flutterProject,
+    printStructuredErrorLogMethod: printStructuredErrorLogMethod,
+    logger: logger,
+  );
+}
 
-  final Map<String, dynamic> _map = <String, dynamic>{};
+Future<vm_service.VmService> createVmServiceDelegate(
+  Uri wsUri, {
+  io.CompressionOptions compression = io.CompressionOptions.compressionDefault,
+  required Logger logger,
+}) async {
+  final io.WebSocket channel = await _openChannel(
+    wsUri.toString(),
+    compression: compression,
+    logger: logger,
+  );
+  return vm_service.VmService(
+    channel,
+    channel.add,
+    disposeHandler: () async {
+      await channel.close();
+    },
+  );
+}
 
-  @override
-  void _update(Map<String, dynamic> map, bool mapIsRef) {
-    _loaded = !mapIsRef;
-    _upgradeCollection(map, owner);
-    _map.clear();
-    _map.addAll(map);
+Future<FlutterVmService> _connect(
+  Uri httpUri, {
+  ReloadSources? reloadSources,
+  Restart? restart,
+  CompileExpression? compileExpression,
+  GetSkSLMethod? getSkSLMethod,
+  FlutterProject? flutterProject,
+  PrintStructuredErrorLogMethod? printStructuredErrorLogMethod,
+  io.CompressionOptions compression = io.CompressionOptions.compressionDefault,
+  Device? device,
+  required Logger logger,
+}) async {
+  final Uri wsUri = httpUri.replace(scheme: 'ws', path: urlContext.join(httpUri.path, 'ws'));
+  final vm_service.VmService delegateService = await createVmServiceDelegate(
+    wsUri,
+    compression: compression,
+    logger: logger,
+  );
+
+  final vm_service.VmService service = await setUpVmService(
+    reloadSources: reloadSources,
+    restart: restart,
+    compileExpression: compileExpression,
+    device: device,
+    skSLMethod: getSkSLMethod,
+    flutterProject: flutterProject,
+    printStructuredErrorLogMethod: printStructuredErrorLogMethod,
+    vmService: delegateService,
+  );
+
+  // This call is to ensure we are able to establish a connection instead of
+  // keeping on trucking and failing farther down the process.
+  await delegateService.getVersion();
+  return FlutterVmService(service, httpAddress: httpUri, wsAddress: wsUri);
+}
+
+String _validateRpcStringParam(String methodName, Map<String, Object?> params, String paramName) {
+  final Object? value = params[paramName];
+  if (value is! String || value.isEmpty) {
+    throw vm_service.RPCError(
+      methodName,
+      vm_service.RPCErrorKind.kInvalidParams.code,
+      "Invalid '$paramName': $value",
+    );
   }
+  return value;
+}
 
-  // Forward Map interface calls.
-  @override
-  void addAll(Map<String, dynamic> other) => _map.addAll(other);
-  @override
-  void clear() => _map.clear();
-  @override
-  bool containsValue(dynamic v) => _map.containsValue(v);
-  @override
-  bool containsKey(Object k) => _map.containsKey(k);
-  @override
-  void forEach(void f(String key, dynamic value)) => _map.forEach(f);
-  @override
-  dynamic putIfAbsent(String key, dynamic ifAbsent()) => _map.putIfAbsent(key, ifAbsent);
-  @override
-  void remove(Object key) => _map.remove(key);
-  @override
-  dynamic operator [](Object k) => _map[k];
-  @override
-  void operator []=(String k, dynamic v) => _map[k] = v;
-  @override
-  bool get isEmpty => _map.isEmpty;
-  @override
-  bool get isNotEmpty => _map.isNotEmpty;
-  @override
-  Iterable<String> get keys => _map.keys;
-  @override
-  Iterable<dynamic> get values => _map.values;
-  @override
-  int get length => _map.length;
-  @override
-  String toString() => _map.toString();
-  @override
-  void addEntries(Iterable<MapEntry<String, dynamic>> entries) => _map.addEntries(entries);
-  @override
-  Map<RK, RV> cast<RK, RV>() => _map.cast<RK, RV>();
-  @override
-  void removeWhere(bool test(String key, dynamic value)) => _map.removeWhere(test);
-  @override
-  Map<K2, V2> map<K2, V2>(MapEntry<K2, V2> transform(String key, dynamic value)) => _map.map(transform);
-  @override
-  Iterable<MapEntry<String, dynamic>> get entries => _map.entries;
-  @override
-  void updateAll(dynamic update(String key, dynamic value)) => _map.updateAll(update);
-  Map<RK, RV> retype<RK, RV>() => _map.cast<RK, RV>(); // ignore: annotate_overrides
-  @override
-  dynamic update(String key, dynamic update(dynamic value), {dynamic ifAbsent()}) => _map.update(key, update, ifAbsent: ifAbsent);
+bool _validateRpcBoolParam(String methodName, Map<String, Object?> params, String paramName) {
+  final Object? value = params[paramName];
+  if (value != null && value is! bool) {
+    throw vm_service.RPCError(
+      methodName,
+      vm_service.RPCErrorKind.kInvalidParams.code,
+      "Invalid '$paramName': $value",
+    );
+  }
+  return (value as bool?) ?? false;
 }
 
 /// Peered to an Android/iOS FlutterView widget on a device.
-class FlutterView extends ServiceObject {
-  FlutterView._empty(ServiceObjectOwner owner) : super._empty(owner);
+class FlutterView {
+  FlutterView({required this.id, required this.uiIsolate});
 
-  Isolate _uiIsolate;
-  Isolate get uiIsolate => _uiIsolate;
-
-  @override
-  void _update(Map<String, dynamic> map, bool mapIsRef) {
-    _loaded = !mapIsRef;
-    _upgradeCollection(map, owner);
-    _uiIsolate = map['isolate'];
+  factory FlutterView.parse(Map<String, Object?> json) {
+    final Map<String, Object?>? rawIsolate = json['isolate'] as Map<String, Object?>?;
+    vm_service.IsolateRef? isolate;
+    if (rawIsolate != null) {
+      rawIsolate['number'] = rawIsolate['number']?.toString();
+      isolate = vm_service.IsolateRef.parse(rawIsolate);
+    }
+    return FlutterView(id: json['id']! as String, uiIsolate: isolate);
   }
 
-  // TODO(johnmccutchan): Report errors when running failed.
-  Future<Null> runFromSource(Uri entryUri,
-                             Uri packagesUri,
-                             Uri assetsDirectoryUri) async {
-    final String viewId = id;
-    // When this completer completes the isolate is running.
-    final Completer<Null> completer = new Completer<Null>();
-    final StreamSubscription<ServiceEvent> subscription =
-      (await owner.vm.vmService.onIsolateEvent).listen((ServiceEvent event) {
-      // TODO(johnmccutchan): Listen to the debug stream and catch initial
-      // launch errors.
-      if (event.kind == ServiceEvent.kIsolateRunnable) {
-        printTrace('Isolate is runnable.');
-        if (!completer.isCompleted)
-          completer.complete(null);
-      }
-    });
-    await owner.vm.runInView(viewId,
-                             entryUri,
-                             packagesUri,
-                             assetsDirectoryUri);
-    await completer.future;
-    await owner.vm.refreshViews();
-    await subscription.cancel();
-  }
+  final vm_service.IsolateRef? uiIsolate;
+  final String id;
 
-  Future<Null> setAssetDirectory(Uri assetsDirectory) async {
-    assert(assetsDirectory != null);
-    await owner.vmService.vm.invokeRpc('_flutter.setAssetBundlePath',
-        params: <String, dynamic>{
-          'isolateId': _uiIsolate.id,
-          'viewId': id,
-          'assetDirectory': assetsDirectory.toFilePath(windows: false)
-        });
-  }
-
-  bool get hasIsolate => _uiIsolate != null;
-
-  Future<Null> flushUIThreadTasks() async {
-    await owner.vm.invokeRpcRaw('_flutter.flushUIThreadTasks',
-      params: <String, dynamic>{'isolateId': _uiIsolate.id});
-  }
+  bool get hasIsolate => uiIsolate != null;
 
   @override
   String toString() => id;
+
+  Map<String, Object?> toJson() {
+    return <String, Object?>{'id': id, 'isolate': uiIsolate?.toJson()};
+  }
+}
+
+/// Flutter specific VM Service functionality.
+class FlutterVmService {
+  FlutterVmService(this.service, {this.wsAddress, this.httpAddress});
+
+  final vm_service.VmService service;
+  final Uri? wsAddress;
+  final Uri? httpAddress;
+
+  /// Calls [service.getVM]. However, in the case that an [vm_service.RPCError]
+  /// is thrown due to the service being disconnected, the error is discarded
+  /// and null is returned.
+  Future<vm_service.VM?> getVmGuarded() async {
+    try {
+      return await service.getVM();
+    } on vm_service.RPCError catch (err) {
+      if (err.code == vm_service.RPCErrorKind.kServiceDisappeared.code ||
+          err.message.contains('Service connection disposed')) {
+        globals.printTrace('VmService.getVm call failed: $err');
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  Future<vm_service.Response?> callMethodWrapper(
+    String method, {
+    String? isolateId,
+    Map<String, Object?>? args,
+  }) async {
+    try {
+      return await service.callMethod(method, isolateId: isolateId, args: args);
+    } on vm_service.RPCError catch (e) {
+      // If the service disappears mid-request the tool is unable to recover
+      // and should begin to shutdown due to the service connection closing.
+      // Swallow the exception here and let the shutdown logic elsewhere deal
+      // with cleaning up.
+      if (e.code == vm_service.RPCErrorKind.kServiceDisappeared.code ||
+          e.message.contains('Service connection disposed')) {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  /// Set the asset directory for the an attached Flutter view.
+  Future<void> setAssetDirectory({
+    required Uri assetsDirectory,
+    required String? viewId,
+    required String? uiIsolateId,
+    required bool windows,
+  }) async {
+    await callMethodWrapper(
+      kSetAssetBundlePathMethod,
+      isolateId: uiIsolateId,
+      args: <String, Object?>{
+        'viewId': viewId,
+        'assetDirectory': assetsDirectory.toFilePath(windows: windows),
+      },
+    );
+  }
+
+  /// Retrieve the cached SkSL shaders from an attached Flutter view.
+  ///
+  /// This method will only return data if `--cache-sksl` was provided as a
+  /// flutter run argument, and only then on physical devices.
+  Future<Map<String, Object?>?> getSkSLs({required String viewId}) async {
+    final vm_service.Response? response = await callMethodWrapper(
+      kGetSkSLsMethod,
+      args: <String, String>{'viewId': viewId},
+    );
+    if (response == null) {
+      return null;
+    }
+    return response.json?['SkSLs'] as Map<String, Object?>?;
+  }
+
+  /// Flush all tasks on the UI thread for an attached Flutter view.
+  ///
+  /// This method is currently used only for benchmarking.
+  Future<void> flushUIThreadTasks({required String uiIsolateId}) async {
+    await callMethodWrapper(
+      kFlushUIThreadTasksMethod,
+      args: <String, String>{'isolateId': uiIsolateId},
+    );
+  }
+
+  /// Launch the Dart isolate with entrypoint [main] in the Flutter engine [viewId]
+  /// with [assetsDirectory] as the devFS.
+  ///
+  /// This method is used by the tool to hot restart an already running Flutter
+  /// engine.
+  Future<void> runInView({
+    required String viewId,
+    required Uri main,
+    required Uri assetsDirectory,
+  }) async {
+    try {
+      await service.streamListen(vm_service.EventStreams.kIsolate);
+    } on vm_service.RPCError catch (e) {
+      // Do nothing if the tool is already subscribed.
+      if (e.code != vm_service.RPCErrorKind.kStreamAlreadySubscribed.code) {
+        rethrow;
+      }
+    }
+
+    // TODO(andrewkolos): this is to assist in troubleshooting
+    //  https://github.com/flutter/flutter/issues/152220 and should be reverted
+    //  once this issue is resolved.
+    final StreamSubscription<String> onReceiveSubscription = service.onReceive.listen((
+      String message,
+    ) {
+      globals.logger.printTrace('runInView VM service onReceive listener received "$message"');
+      final dynamic messageAsJson = jsonDecode(message);
+      // ignore: avoid_dynamic_calls -- Temporary code.
+      final dynamic messageKind = messageAsJson['params']?['event']?['kind'];
+      if (messageKind == 'IsolateRunnable') {
+        globals.logger.printTrace('Received IsolateRunnable event from onReceive.');
+      }
+    });
+
+    final Future<void> onRunnable = service.onIsolateEvent.firstWhere((vm_service.Event event) {
+      return event.kind == vm_service.EventKind.kIsolateRunnable;
+    });
+    await callMethodWrapper(
+      kRunInViewMethod,
+      args: <String, Object>{
+        'viewId': viewId,
+        'mainScript': main.toString(),
+        'assetDirectory': assetsDirectory.toString(),
+      },
+    );
+    await onRunnable;
+    await onReceiveSubscription.cancel();
+  }
+
+  Future<String> flutterDebugDumpApp({required String isolateId}) async {
+    final Map<String, Object?>? response = await invokeFlutterExtensionRpcRaw(
+      'ext.flutter.debugDumpApp',
+      isolateId: isolateId,
+    );
+    return response?['data']?.toString() ?? '';
+  }
+
+  Future<String> flutterDebugDumpRenderTree({required String isolateId}) async {
+    final Map<String, Object?>? response = await invokeFlutterExtensionRpcRaw(
+      'ext.flutter.debugDumpRenderTree',
+      isolateId: isolateId,
+      args: <String, Object>{},
+    );
+    return response?['data']?.toString() ?? '';
+  }
+
+  Future<String> flutterDebugDumpLayerTree({required String isolateId}) async {
+    final Map<String, Object?>? response = await invokeFlutterExtensionRpcRaw(
+      'ext.flutter.debugDumpLayerTree',
+      isolateId: isolateId,
+    );
+    return response?['data']?.toString() ?? '';
+  }
+
+  Future<String> flutterDebugDumpFocusTree({required String isolateId}) async {
+    final Map<String, Object?>? response = await invokeFlutterExtensionRpcRaw(
+      'ext.flutter.debugDumpFocusTree',
+      isolateId: isolateId,
+    );
+    return response?['data']?.toString() ?? '';
+  }
+
+  Future<String> flutterDebugDumpSemanticsTreeInTraversalOrder({required String isolateId}) async {
+    final Map<String, Object?>? response = await invokeFlutterExtensionRpcRaw(
+      'ext.flutter.debugDumpSemanticsTreeInTraversalOrder',
+      isolateId: isolateId,
+    );
+    return response?['data']?.toString() ?? '';
+  }
+
+  Future<String> flutterDebugDumpSemanticsTreeInInverseHitTestOrder({
+    required String isolateId,
+  }) async {
+    final Map<String, Object?>? response = await invokeFlutterExtensionRpcRaw(
+      'ext.flutter.debugDumpSemanticsTreeInInverseHitTestOrder',
+      isolateId: isolateId,
+    );
+    if (response != null) {
+      return response['data']?.toString() ?? '';
+    }
+    return '';
+  }
+
+  Future<Map<String, Object?>?> _flutterToggle(String name, {required String isolateId}) async {
+    Map<String, Object?>? state = await invokeFlutterExtensionRpcRaw(
+      'ext.flutter.$name',
+      isolateId: isolateId,
+    );
+    if (state != null && state.containsKey('enabled') && state['enabled'] is String) {
+      state = await invokeFlutterExtensionRpcRaw(
+        'ext.flutter.$name',
+        isolateId: isolateId,
+        args: <String, Object>{'enabled': state['enabled'] == 'true' ? 'false' : 'true'},
+      );
+    }
+
+    return state;
+  }
+
+  Future<Map<String, Object?>?> flutterToggleDebugPaintSizeEnabled({required String isolateId}) =>
+      _flutterToggle('debugPaint', isolateId: isolateId);
+
+  Future<Map<String, Object?>?> flutterTogglePerformanceOverlayOverride({
+    required String isolateId,
+  }) => _flutterToggle('showPerformanceOverlay', isolateId: isolateId);
+
+  Future<Map<String, Object?>?> flutterToggleWidgetInspector({required String isolateId}) =>
+      _flutterToggle('inspector.show', isolateId: isolateId);
+
+  Future<Map<String, Object?>?> flutterToggleInvertOversizedImages({required String isolateId}) =>
+      _flutterToggle('invertOversizedImages', isolateId: isolateId);
+
+  Future<Map<String, Object?>?> flutterToggleProfileWidgetBuilds({required String isolateId}) =>
+      _flutterToggle('profileWidgetBuilds', isolateId: isolateId);
+
+  Future<Map<String, Object?>?> flutterDebugAllowBanner(bool show, {required String isolateId}) {
+    return invokeFlutterExtensionRpcRaw(
+      'ext.flutter.debugAllowBanner',
+      isolateId: isolateId,
+      args: <String, Object>{'enabled': show ? 'true' : 'false'},
+    );
+  }
+
+  Future<Map<String, Object?>?> flutterReassemble({required String isolateId}) {
+    return invokeFlutterExtensionRpcRaw('ext.flutter.reassemble', isolateId: isolateId);
+  }
+
+  Future<bool> flutterAlreadyPaintedFirstUsefulFrame({required String isolateId}) async {
+    final Map<String, Object?>? result = await invokeFlutterExtensionRpcRaw(
+      'ext.flutter.didSendFirstFrameRasterizedEvent',
+      isolateId: isolateId,
+    );
+    // result might be null when the service extension is not initialized
+    return result?['enabled'] == 'true';
+  }
+
+  Future<Map<String, Object?>?> uiWindowScheduleFrame({required String isolateId}) {
+    return invokeFlutterExtensionRpcRaw('ext.ui.window.scheduleFrame', isolateId: isolateId);
+  }
+
+  Future<Map<String, Object?>?> flutterEvictAsset(String assetPath, {required String isolateId}) {
+    return invokeFlutterExtensionRpcRaw(
+      'ext.flutter.evict',
+      isolateId: isolateId,
+      args: <String, Object?>{'value': assetPath},
+    );
+  }
+
+  Future<Map<String, Object?>?> flutterEvictShader(String assetPath, {required String isolateId}) {
+    return invokeFlutterExtensionRpcRaw(
+      'ext.ui.window.reinitializeShader',
+      isolateId: isolateId,
+      args: <String, Object?>{'assetKey': assetPath},
+    );
+  }
+
+  Future<Map<String, Object?>?> flutterEvictScene(String assetPath, {required String isolateId}) {
+    return invokeFlutterExtensionRpcRaw(
+      'ext.ui.window.reinitializeScene',
+      isolateId: isolateId,
+      args: <String, Object?>{'assetKey': assetPath},
+    );
+  }
+
+  /// Exit the application by calling [exit] from `dart:io`.
+  ///
+  /// This method is only supported by certain embedders. This is
+  /// described by [Device.supportsFlutterExit].
+  Future<bool> flutterExit({required String isolateId}) async {
+    try {
+      final Map<String, Object?>? result = await invokeFlutterExtensionRpcRaw(
+        'ext.flutter.exit',
+        isolateId: isolateId,
+      );
+      // A response of `null` indicates that `invokeFlutterExtensionRpcRaw` caught an RPCError
+      // with a missing method code. This can happen when attempting to quit a Flutter app
+      // that never registered the methods in the bindings.
+      if (result == null) {
+        return false;
+      }
+    } on vm_service.SentinelException {
+      // Do nothing on sentinel, the isolate already exited.
+    } on vm_service.RPCError {
+      // Do nothing on RPCError, the isolate already exited.
+    }
+    return true;
+  }
+
+  /// Return the current platform override for the flutter view running with
+  /// the main isolate [isolateId].
+  ///
+  /// If a non-null value is provided for [platform], the platform override
+  /// is updated with this value.
+  Future<String> flutterPlatformOverride({String? platform, required String isolateId}) async {
+    final Map<String, Object?>? result = await invokeFlutterExtensionRpcRaw(
+      'ext.flutter.platformOverride',
+      isolateId: isolateId,
+      args: platform != null ? <String, Object>{'value': platform} : <String, String>{},
+    );
+    if (result case {'value': final String value}) {
+      return value;
+    }
+    return 'unknown';
+  }
+
+  /// Return the current brightness value for the flutter view running with
+  /// the main isolate [isolateId].
+  ///
+  /// If a non-null value is provided for [brightness], the brightness override
+  /// is updated with this value.
+  Future<Brightness?> flutterBrightnessOverride({
+    Brightness? brightness,
+    required String isolateId,
+  }) async {
+    final Map<String, Object?>? result = await invokeFlutterExtensionRpcRaw(
+      'ext.flutter.brightnessOverride',
+      isolateId: isolateId,
+      args:
+          brightness != null
+              ? <String, String>{'value': brightness.toString()}
+              : <String, String>{},
+    );
+    if (result != null && result['value'] is String) {
+      return result['value'] == 'Brightness.light' ? Brightness.light : Brightness.dark;
+    }
+    return null;
+  }
+
+  Future<vm_service.Response?> _checkedCallServiceExtension(
+    String method, {
+    Map<String, Object?>? args,
+  }) async {
+    try {
+      return await service.callServiceExtension(method, args: args);
+    } on vm_service.RPCError catch (err) {
+      // If an application is not using the framework or the VM service
+      // disappears while handling a request, return null.
+      if ((err.code == vm_service.RPCErrorKind.kMethodNotFound.code) ||
+          (err.code == vm_service.RPCErrorKind.kServiceDisappeared.code) ||
+          (err.message.contains('Service connection disposed'))) {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  /// Invoke a flutter extension method, if the flutter extension is not
+  /// available, returns null.
+  Future<Map<String, Object?>?> invokeFlutterExtensionRpcRaw(
+    String method, {
+    required String isolateId,
+    Map<String, Object?>? args,
+  }) async {
+    final vm_service.Response? response = await _checkedCallServiceExtension(
+      method,
+      args: <String, Object?>{'isolateId': isolateId, ...?args},
+    );
+    return response?.json;
+  }
+
+  /// List all [FlutterView]s attached to the current VM.
+  ///
+  /// If this returns an empty list, it will poll forever unless [returnEarly]
+  /// is set to true.
+  ///
+  /// By default, the poll duration is 50 milliseconds.
+  Future<List<FlutterView>> getFlutterViews({
+    bool returnEarly = false,
+    Duration delay = const Duration(milliseconds: 50),
+  }) async {
+    while (true) {
+      final vm_service.Response? response = await callMethodWrapper(kListViewsMethod);
+      if (response == null) {
+        // The service may have disappeared mid-request.
+        // Return an empty list now, and let the shutdown logic elsewhere deal
+        // with cleaning up.
+        return <FlutterView>[];
+      }
+      final List<Object?>? rawViews = response.json?['views'] as List<Object?>?;
+      final List<FlutterView> views = <FlutterView>[
+        if (rawViews != null)
+          for (final Map<String, Object?> rawView in rawViews.whereType<Map<String, Object?>>())
+            FlutterView.parse(rawView),
+      ];
+      if (views.isNotEmpty || returnEarly) {
+        return views;
+      }
+      await Future<void>.delayed(delay);
+    }
+  }
+
+  /// Tell the provided flutter view that the font manifest has been updated
+  /// and asset fonts should be reloaded.
+  Future<void> reloadAssetFonts({required String isolateId, required String viewId}) async {
+    await callMethodWrapper(
+      kReloadAssetFonts,
+      isolateId: isolateId,
+      args: <String, Object?>{'viewId': viewId},
+    );
+  }
+
+  /// Waits for a signal from the VM service that [extensionName] is registered.
+  ///
+  /// Looks at the list of loaded extensions for first Flutter view, as well as
+  /// the stream of added extensions to avoid races.
+  ///
+  /// If [webIsolate] is true, this uses the VM Service isolate list instead of
+  /// the `_flutter.listViews` method, which is not implemented by DWDS.
+  ///
+  /// Throws a [VmServiceDisappearedException] should the VM Service disappear
+  /// while making calls to it.
+  Future<vm_service.IsolateRef> findExtensionIsolate(String extensionName) async {
+    try {
+      await service.streamListen(vm_service.EventStreams.kIsolate);
+    } on vm_service.RPCError {
+      // Do nothing, since the tool is already subscribed.
+    }
+
+    final Completer<vm_service.IsolateRef> extensionAdded = Completer<vm_service.IsolateRef>();
+    late final StreamSubscription<vm_service.Event> isolateEvents;
+    isolateEvents = service.onIsolateEvent.listen((vm_service.Event event) {
+      if (event.kind == vm_service.EventKind.kServiceExtensionAdded &&
+          event.extensionRPC == extensionName) {
+        isolateEvents.cancel();
+        extensionAdded.complete(event.isolate!);
+      }
+    });
+
+    try {
+      final List<vm_service.IsolateRef> refs = await _getIsolateRefs();
+      for (final vm_service.IsolateRef ref in refs) {
+        final vm_service.Isolate? isolate = await getIsolateOrNull(ref.id!);
+        if (isolate != null && (isolate.extensionRPCs?.contains(extensionName) ?? false)) {
+          return ref;
+        }
+      }
+      return await extensionAdded.future;
+    } on vm_service.RPCError {
+      // Translate this exception into something the outer layer understands
+      throw VmServiceDisappearedException();
+    } finally {
+      await isolateEvents.cancel();
+    }
+  }
+
+  Future<List<vm_service.IsolateRef>> _getIsolateRefs() async {
+    final List<FlutterView> flutterViews = await getFlutterViews();
+    if (flutterViews.isEmpty) {
+      throw VmServiceDisappearedException();
+    }
+
+    return <vm_service.IsolateRef>[
+      for (final FlutterView flutterView in flutterViews)
+        if (flutterView.uiIsolate case final vm_service.IsolateRef uiIsolate) uiIsolate,
+    ];
+  }
+
+  /// Attempt to retrieve the isolate with id [isolateId], or `null` if it has
+  /// been collected.
+  Future<vm_service.Isolate?> getIsolateOrNull(String isolateId) async {
+    return service
+        .getIsolate(isolateId)
+        .then<vm_service.Isolate?>(
+          (vm_service.Isolate isolate) => isolate,
+          onError: (Object? error, StackTrace stackTrace) {
+            if (error is vm_service.SentinelException ||
+                error == null ||
+                (error is vm_service.RPCError &&
+                    error.code == vm_service.RPCErrorKind.kServiceDisappeared.code)) {
+              return null;
+            }
+            return Future<vm_service.Isolate?>.error(error, stackTrace);
+          },
+        );
+  }
+
+  /// Attempt to retrieve the isolate pause event with id [isolateId], or `null` if it has
+  /// been collected.
+  Future<vm_service.Event?> getIsolatePauseEventOrNull(String isolateId) async {
+    return service
+        .getIsolatePauseEvent(isolateId)
+        .then<vm_service.Event?>(
+          (vm_service.Event event) => event,
+          onError: (Object? error, StackTrace stackTrace) {
+            if (error is vm_service.SentinelException ||
+                error == null ||
+                (error is vm_service.RPCError &&
+                    error.code == vm_service.RPCErrorKind.kServiceDisappeared.code)) {
+              return null;
+            }
+            return Future<vm_service.Event?>.error(error, stackTrace);
+          },
+        );
+  }
+
+  /// Create a new development file system on the device.
+  Future<vm_service.Response> createDevFS(String fsName) {
+    // Call the unchecked version of `callServiceExtension` because the caller
+    // has custom handling of certain RPCErrors.
+    return service.callServiceExtension('_createDevFS', args: <String, Object?>{'fsName': fsName});
+  }
+
+  /// Delete an existing file system.
+  Future<void> deleteDevFS(String fsName) async {
+    await _checkedCallServiceExtension('_deleteDevFS', args: <String, Object?>{'fsName': fsName});
+  }
+
+  Future<vm_service.Response?> screenshotSkp() {
+    return _checkedCallServiceExtension(kScreenshotSkpMethod);
+  }
+
+  /// Set the VM timeline flags.
+  Future<void> setTimelineFlags(List<String> recordedStreams) async {
+    await _checkedCallServiceExtension(
+      'setVMTimelineFlags',
+      args: <String, Object?>{'recordedStreams': recordedStreams},
+    );
+  }
+
+  Future<vm_service.Response?> getTimeline() {
+    return _checkedCallServiceExtension('getVMTimeline');
+  }
+
+  Future<void> dispose() async {
+    await service.dispose();
+  }
+}
+
+/// Thrown when the VM Service disappears while calls are being made to it.
+class VmServiceDisappearedException implements Exception {}
+
+/// Thrown when the frontend service fails to compile an expression due to an
+/// error.
+class VmServiceExpressionCompilationException implements Exception {
+  const VmServiceExpressionCompilationException(this.errorMessage);
+
+  final String errorMessage;
+}
+
+/// Whether the event attached to an [Isolate.pauseEvent] should be considered
+/// a "pause" event.
+bool isPauseEvent(String kind) {
+  return kind == vm_service.EventKind.kPauseStart ||
+      kind == vm_service.EventKind.kPauseExit ||
+      kind == vm_service.EventKind.kPauseBreakpoint ||
+      kind == vm_service.EventKind.kPauseInterrupted ||
+      kind == vm_service.EventKind.kPauseException ||
+      kind == vm_service.EventKind.kPausePostRequest ||
+      kind == vm_service.EventKind.kNone;
+}
+
+/// A brightness enum that matches the values https://github.com/flutter/engine/blob/3a96741247528133c0201ab88500c0c3c036e64e/lib/ui/window.dart#L1328
+/// Describes the contrast of a theme or color palette.
+enum Brightness {
+  /// The color is dark and will require a light text color to achieve readable
+  /// contrast.
+  ///
+  /// For example, the color might be dark grey, requiring white text.
+  dark,
+
+  /// The color is light and will require a dark text color to achieve readable
+  /// contrast.
+  ///
+  /// For example, the color might be bright white, requiring black text.
+  light,
+}
+
+/// Process a VM service log event into a string message.
+String processVmServiceMessage(vm_service.Event event) {
+  final String message = utf8.decode(base64.decode(event.bytes!));
+  // Remove extra trailing newlines appended by the vm service.
+  if (message.endsWith('\n')) {
+    return message.substring(0, message.length - 1);
+  }
+  return message;
 }
