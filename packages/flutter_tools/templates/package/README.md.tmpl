@@ -11,29 +11,50 @@ and the Flutter guide for
 [developing packages and plugins](https://flutter.dev/to/develop-packages).
 -->
 
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+## Package Description
+
+This package provides utilities that help developers build and structure
+Flutter packages and plugins more efficiently. It follows recommended
+Flutter and Dart conventions and includes examples and boilerplate code
+to speed up development.
 
 ## Features
 
-TODO: List what your package can do. Maybe include images, gifs, or videos.
+- Clean and organized project structure.
+- Example implementation included in the `/example` folder.
+- Easy to extend for Flutter plugins or packages.
+- Follows Dart & Flutter recommended best practices.
 
 ## Getting started
 
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
+Before using this package, ensure you have the following:
 
-## Usage
+- Flutter SDK installed
+- Dart 3.0+ environment
+- A valid `pubspec.yaml`
 
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
+Add the package to your dependencies:
 
-```dart
-const like = 'sample';
-```
+```yaml
+dependencies:
+  your_package_name: ^1.0.0
+
+##Usage
+
+A simple example of how to use the package:
+
+import 'package:your_package_name/your_package_name.dart';
+
+void main() {
+  final example = YourPackageClass().initialize();
+  print(example);
+}
 
 ## Additional information
 
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+For contributions, improvements, or bug reports, please open an issue
+or submit a pull request on the repository.
+
+- Flutter package development guide: https://flutter.dev/to/develop-packages  
+- Dart package writing guide: https://dart.dev/tools/pub/writing-package-pages
+
